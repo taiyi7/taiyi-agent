@@ -1,4 +1,4 @@
-
+'''异常模块'''
 class TaiyiAgentException(Exception):
     '''TaiyiAgent基础异常类'''
     pass

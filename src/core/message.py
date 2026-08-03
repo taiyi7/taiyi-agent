@@ -36,8 +36,8 @@ class Message(BaseModel):
         super().__init__(
             content=content,
             role=role,
-            timestamp=kwargs.get('timestamp',datetime.now()),
-            metadata=kwargs.get('metadata',{})
+            timestamp=kwargs.get('timestamp', datetime.now()),
+            metadata=kwargs.get('metadata', {})
         )
 
     def to_dict(self) -> Dict[str, Any]:

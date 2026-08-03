@@ -28,3 +28,18 @@ class Agent(ABC):
     def run(self, input_text: str, **kwargs) -> str:
         '''运行Agent'''
         pass
+
+    def add_history(self, message:Message):
+        '''将消息添加到历史'''
+        self._history.append(message)
+
+    def clear_history(self):
+        '''清空历史记录'''
+        self._history.clear()
+
+    def get_history(self):
+        '''获取历史记录'''
+        return self._history.copy()
+
+    def __str__(self) -> str:
+        return f"Agent(name={self.name}, model={self.llm.llm_model_id})"
