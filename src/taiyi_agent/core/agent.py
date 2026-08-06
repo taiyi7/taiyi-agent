@@ -1,9 +1,9 @@
 '''Agent基类'''
 from abc import ABC, abstractmethod
 from typing import Optional
-from config import Config
-from llm import TaiyiAgentLLM
-from message import Message
+from taiyi_agent.core.config import Config
+from taiyi_agent.core.llm import TaiyiAgentLLM
+from taiyi_agent.core.message import Message
 
 class Agent(ABC):
     '''
@@ -29,6 +29,10 @@ class Agent(ABC):
         '''运行Agent'''
         pass
 
+    def get_history(self):
+        '''获取历史记录'''
+        return self._history.copy()
+    
     def add_history(self, message:Message):
         '''将消息添加到历史'''
         self._history.append(message)
@@ -37,9 +41,17 @@ class Agent(ABC):
         '''清空历史记录'''
         self._history.clear()
 
-    def get_history(self):
-        '''获取历史记录'''
-        return self._history.copy()
+    def get_system_prompt(self) -> str:
+        '''读取系统提示词'''
+        return self.system_prompt
+
+    def set_system_prompt(self, new_system_prompt: str):
+        '''重置系统提示词'''
+        self.system_prompt = new_system_prompt
+
+    def append_system_prompt(self, extra: str):
+        '''补充系统提示词'''
+        self.system_prompt += '\n' + extra
 
     def __str__(self) -> str:
         return f"Agent(name={self.name}, model={self.llm.llm_model_id})"

@@ -3,7 +3,7 @@ import os
 from typing import Optional, Iterator, List, Dict, Any
 from openai import OpenAI
 from dotenv import load_dotenv
-from exceptions import LLMException
+from taiyi_agent.core.exceptions import LLMException
 
 load_dotenv()
 # 后续演进：
@@ -50,25 +50,17 @@ class TaiyiAgentLLM:
         )
         print("TaiyiAgentLLM初始化成功")
 
-    def think(self, messages: List[Dict[str, Any]], temperature:Optional[float]=None, is_stream=True) -> Iterator[str] | str:
-        '''
-        调用 LLM 进行思考， 默认使用流式输出
-        参数：
-            messages: 消息列表
-            temperature: 温度参数，如果未提供则使用初始化时的值
-        '''
-        try:
-            if is_stream:
-                yield from self._stream_output(messages,temperature)
-            else:
-                return self._invoke_output(messages,temperature)
-        except Exception as e:
-            print(f"❌调用LLM API时报错: {e}")
-            raise LLMException(f"调用LLM API时报错: {str(e)}")
+    def invoke(self, messages: List[Dict[str, Any]], temperature:Optional[float]=None) -> str:
+        '''非流式输出llm结果'''
+        return self._invoke_output(messages, temperature)
+
+    def stream(self, messages: List[Dict[str, Any]], temperature:Optional[float]=None) -> Iterator[str]:
+        '''流式输出llm结果'''
+        return self._stream_output(messages, temperature)
 
     def _stream_output(self, messages: List[Dict[str, Any]], temperature:Optional[float]=None) -> Iterator[str]:
         '''
-        流式输出，调用大模型
+        流式输出，调用大模型API接口
         '''
         print(f"🧠 正在调用 {self.llm_model_id} 模型...")
         try:
@@ -80,7 +72,7 @@ class TaiyiAgentLLM:
             )
 
             # 处理流式响应
-            print("✒️ 大模型正在输出中...")
+            print("✒️ 大模型正在流式输出中...")
             for chunk in response:
                 if not chunk.choices:
                     # print(f"\n[用量统计] {chunk}")
@@ -91,11 +83,11 @@ class TaiyiAgentLLM:
                     yield content
             print("\n✅ 本次大模型流式输出完成")
         except Exception as e:
-            raise LLMException(f"流式输出LLM API时报错: {str(e)}")
+            raise LLMException(f"❌ 流式输出LLM API时报错: {str(e)}")
 
-    def _invoke_output(self, messages: List[Dict[str, Any]], temperature:Optional[float]) -> Iterator[str]:
+    def _invoke_output(self, messages: List[Dict[str, Any]], temperature:Optional[float]) -> str:
         '''
-        非流式输出，调用大模型
+        非流式输出，调用大模型API接口
         '''
         print(f"🧠 正在调用 {self.llm_model_id} 模型...")
         try:
@@ -107,14 +99,4 @@ class TaiyiAgentLLM:
             print("✅ 本次大模型非流式输出完成：")
             return response.choices[0].message.content
         except Exception as e:
-            raise LLMException(f"非流式输出LLM API时报错：{str(e)}")
-
-# llm = TaiyiAgentLLM()
-# messages = [{"role": "user", "content": "请介绍你自己"}]
-# response = llm.think(messages)
-# result = ""
-# for chunk in response:
-#     print(chunk, end="", flush=True)
-#     result += chunk
-
-
+            raise LLMException(f"❌ 非流式输出LLM API时报错：{str(e)}")
