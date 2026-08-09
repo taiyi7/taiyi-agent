@@ -1,23 +1,25 @@
 # simple_agent.py
 from typing import Optional, Iterator, List, Any, Dict
-from taiyi_agent.core.agent import Agent
+from taiyi_agent.core.agent import BaseAgent
 from taiyi_agent.core.llm import TaiyiAgentLLM
 from taiyi_agent.core.message import Message
 from taiyi_agent.core.config import Config
+from taiyi_agent.history.history import History
 
 
-class SimpleAgent(Agent):
+class SimpleAgent(BaseAgent):
     '''
-    实现一个简单的对话Agent框架
+    实现一个简单的有记忆的对话Agent框架
     '''
     def __init__(
             self,
             name: str,
             llm: TaiyiAgentLLM,
+            history: Optional[History] = None,
             system_prompt: Optional[str] = None,
             config: Optional[Config] = None
     ):
-        super().__init__(name, llm, system_prompt, config)
+        super().__init__(name, llm, history, system_prompt, config)
 
     # 重写run方法， 实现简单的对话功能, 默认采用非流式输出
     def run(self, input: str, **kwargs) -> str:
@@ -35,8 +37,8 @@ class SimpleAgent(Agent):
         response = self.llm.invoke(messages)
 
         # 保存到历史记录，包含客户问题，以及大模型回答
-        self.add_history(Message("user", input))
-        self.add_history(Message("assistant", response))
+        self.history.add_history(Message("user", input))
+        self.history.add_history(Message("assistant", response))
 
         return response
 
@@ -59,8 +61,8 @@ class SimpleAgent(Agent):
             yield chunk                             # 创建生成器，正常外部不会执行遍历，只有外部使用驱动生成器的时候才会遍历
 
         # 保存到历史记录，包含客户问题，以及大模型回答
-        self.add_history(Message("user", input))
-        self.add_history(Message("assistant", full_output))
+        self.history.add_history(Message("user", input))
+        self.history.add_history(Message("assistant", full_output))
     
     def _build_messages(self, input: str) -> List[Dict[str, Any]]:
         # 创建初始消息
@@ -71,7 +73,7 @@ class SimpleAgent(Agent):
             messages.append({"role": "system", "content": self.get_system_prompt()})
 
         # 添加历史消息
-        for msg in  self.get_history():
+        for msg in  self.history.get_history():
             messages.append({"role": msg.role, "content": msg.content})
 
         # 添加用户输入内容

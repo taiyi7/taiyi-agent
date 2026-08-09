@@ -8,7 +8,6 @@ from taiyi_agent.core.exceptions import LLMException
 load_dotenv()
 # 后续演进：
 # 1、多模态数据类型及处理
-# 
 
 class TaiyiAgentLLM:
     '''
