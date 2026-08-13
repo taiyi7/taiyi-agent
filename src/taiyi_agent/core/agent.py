@@ -35,7 +35,7 @@ class BaseAgent(ABC):
     @ abstractmethod
     def run(self, input_text: str, **kwargs) -> str:
         '''运行Agent'''
-        pass
+        ...
 
     def get_system_prompt(self) -> str:
         '''读取系统提示词'''
