@@ -1,9 +1,11 @@
 
+import json
 import os
-from typing import Optional, Iterator, List, Dict, Any
+from typing import Any, Iterator, Optional
 from openai import OpenAI
 from dotenv import load_dotenv
 from taiyi_agent.core.exceptions import LLMException
+from taiyi_agent.core.tool_call import LLMResponse, ToolCall
 
 load_dotenv()
 # 后续演进：
@@ -49,26 +51,47 @@ class TaiyiAgentLLM:
         )
         print("TaiyiAgentLLM初始化成功")
 
-    def invoke(self, messages: List[Dict[str, Any]], temperature:Optional[float]=None) -> str:
+    def invoke(
+            self,
+            messages: list[dict[str, Any]],
+            temperature: Optional[float] = None,
+            *,
+            tools: list[dict[str, Any]] | None = None,
+    ) -> LLMResponse:
         '''非流式输出llm结果'''
-        return self._invoke_output(messages, temperature)
+        return self._invoke_output(messages, temperature, tools=tools)
 
-    def stream(self, messages: List[Dict[str, Any]], temperature:Optional[float]=None) -> Iterator[str]:
+    def stream(
+            self,
+            messages: list[dict[str, Any]],
+            temperature: Optional[float] = None,
+            *,
+            tools: list[dict[str, Any]] | None = None,
+    ) -> Iterator[str]:
         '''流式输出llm结果'''
-        return self._stream_output(messages, temperature)
+        return self._stream_output(messages, temperature, tools=tools)
 
-    def _stream_output(self, messages: List[Dict[str, Any]], temperature:Optional[float]=None) -> Iterator[str]:
+    def _stream_output(
+            self,
+            messages: list[dict[str, Any]],
+            temperature: Optional[float] = None,
+            *,
+            tools: list[dict[str, Any]] | None = None,
+    ) -> Iterator[str]:
         '''
         流式输出，调用大模型API接口
         '''
         print(f"🧠 正在调用 {self.llm_model_id} 模型...")
         try:
-            response = self.client.chat.completions.create(
-                messages=messages,
-                model=self.llm_model_id,
-                temperature=temperature if temperature is not None else self.temperature,
-                stream=True
-            )
+            payload = {
+                "messages": messages,
+                "model": self.llm_model_id,
+                "stream": True,
+                "temperature": (temperature if temperature is not None else self.temperature),
+            }
+            if tools is not None:
+                payload["tools"] = tools
+            response = self.client.chat.completions.create(**payload)
 
             # 处理流式响应
             print("✒️ 大模型正在流式输出中...")
@@ -84,18 +107,56 @@ class TaiyiAgentLLM:
         except Exception as e:
             raise LLMException(f"❌ 流式输出LLM API时报错: {str(e)}")
 
-    def _invoke_output(self, messages: List[Dict[str, Any]], temperature:Optional[float]) -> str:
+    def _invoke_output(
+            self,
+            messages: list[dict[str, Any]],
+            temperature: Optional[float] = None,
+            *,
+            tools: list[dict[str, Any]] | None = None,
+    ) -> LLMResponse:
         '''
-        非流式输出，调用大模型API接口
+        非流式输出，调用大模型API接口，返回信息包含内容和工具调用信息
         '''
         print(f"🧠 正在调用 {self.llm_model_id} 模型...")
         try:
-            response = self.client.chat.completions.create(
-                messages=messages,
-                model=self.llm_model_id,
-                temperature=temperature if temperature is not None else self.temperature,
-            )
+            payload = {
+                "messages": messages,
+                "model": self.llm_model_id,
+                "temperature": (
+                    temperature if temperature is not None else self.temperature
+                ),
+            }
+            if tools is not None:
+                payload["tools"] = tools
+            response = self.client.chat.completions.create(**payload)
             print("✅ 本次大模型非流式输出完成：")
-            return response.choices[0].message.content
+            message = response.choices[0].message
+            tool_calls: list[ToolCall] = []
+
+            for call in message.tool_calls or []:
+                try:
+                    arguments = json.loads(call.function.arguments or "{}")
+                except json.JSONDecodeError as exc:
+                    raise LLMException(
+                        f"工具 {call.function.name} 返回了非法 JSON 参数"
+                    ) from exc
+
+                if not isinstance(arguments, dict):
+                    raise LLMException(
+                        f"工具 {call.function.name} 的参数必须是 JSON 对象"
+                    )
+
+                tool_calls.append(
+                    ToolCall(
+                        id=call.id,
+                        name=call.function.name,
+                        arguments=arguments,
+                    )
+                )
+
+            return LLMResponse(
+                content=message.content or "",
+                tool_calls=tool_calls,
+            )
         except Exception as e:
             raise LLMException(f"❌ 非流式输出LLM API时报错：{str(e)}")
