@@ -1,6 +1,7 @@
 # tool_registry.py
-from typing import Any, Callable, Dict
-from taiyi_agent.tool.tool_base import BaseTool
+from typing import Any, Callable
+from taiyi_agent.tool.tool_base import BaseTool, ToolParameter
+from taiyi_agent.tool.function_tool.function_tool import FunctionTool
 
 class ToolRegistry:
     '''
@@ -13,8 +14,7 @@ class ToolRegistry:
     '''
 
     def __init__(self):
-        self._tools: Dict[str, BaseTool] = {}
-        self._functions: Dict[str, Dict[str, Any]] = {}
+        self._tools: dict[str, BaseTool] = {}
 
     def register_tool(self, tool: BaseTool):
         '''注册工具对象'''
@@ -23,23 +23,30 @@ class ToolRegistry:
         self._tools[tool.name] = tool
         print(f"工具'{tool.name}'已注册")
 
-    def register_function(self, name:str, description: str, func: Callable[[str], str]):
+    def register_function(
+        self,
+        name:str,
+        description: str,
+        func: Callable[..., str],
+        parameters: list[ToolParameter]
+    ):
         '''
-        直接将函数注册为工具，不需要创建工具对象
+        直接将函数注册为工具对象
         
         参数：
             name: 工具名称
             description: 工具描述
-            fun: 工具实现方法，str为入参，str为返回值
+            fun: 工具实现方法
+            parameters: 工具方法的入参格式为：list[ToolParameter]
         '''
-        if name in self._functions:
-            print(f"⚠️工具'{name}'已存在，将被覆盖")
-
-        self._functions[name] = {
-            "description": description,
-            "func": func
-        }
-        print(f"工具'{name}'已注册")
+        return self.register_tool(
+            FunctionTool(
+                name=name,
+                description=description,
+                func=func,
+                parameters=parameters
+            )
+        )
 
     def get_tools_description(self) -> str:
         '''获取所有工具描述清单，返回字符串，便于LLM使用'''
@@ -48,10 +55,42 @@ class ToolRegistry:
         for tool in self._tools.values():
             descriptions.append(f"-- {tool.name}:{tool.description}")
 
-        for name, info in self._functions.items():
-            descriptions.appned(f"-- {name}:{info["descriptions"]}")
+        return "\n".join(descriptions) if descriptions else "当前工具列表为空"
 
-        return "\n".join(descriptions) if descriptions else "当前工具清单为空"
+    def build_tools_prompt(self) -> str:
+        """针对大模型没有原生工具调用的场景，构造系统提示词，来处理工具调用"""
+        sections = []
+
+        for tool in self._tools.values():
+            parameter_lines = []
+            for parameter in tool.get_parameters():
+                required = "必填" if parameter.required else "可选"
+                default = (
+                    f"，默认值：{parameter.default}"
+                    if parameter.default is not None
+                    else ""
+                )
+                parameter_lines.append(
+                    f"- {parameter.name}: {parameter.type}，{required}，"
+                    f"{parameter.description}{default}"
+                )
+
+            sections.append(
+                f"工具名：{tool.name}\n"
+                f"描述：{tool.description}\n"
+                f"参数：\n" + ("\n".join(parameter_lines) or "- 无")
+            )
+
+        if not sections:
+            return "当前没有可调用工具。"
+
+        return (
+            "你可以在必要时调用工具。可用工具如下：\n\n"
+            + "\n\n".join(sections)
+            + "\n\n需要调用工具时，只能输出一个 JSON 对象，不能包含其他文字：\n"
+            '{"type":"tool_call","name":"工具名","arguments":{"参数名":"参数值"}}\n'
+            "不需要调用工具时，直接正常回答用户。"
+        )
 
     def execute_tool(self, name:str, parameters: dict[str, Any]) -> str:
         '''执行注册表中的工具'''
@@ -60,13 +99,15 @@ class ToolRegistry:
                 return self._tools[name].run(parameters)
             except Exception as e:
                 return f"Error：执行工具{name}时报错：{str(e)}"
-            
-        elif name in self._functions:
-            try:
-                return self._functions[name]["func"](parameters)
-            except Exception as e:
-                return f"Error：执行工具{name}时报错：{str(e)}"
-            
         else:
             return f"Error：未找到名字为'{name}'的工具"
+
+    def get_openai_tools(self) -> list[dict[str, Any]]:
+        '''将基类对象工具的参数转化成 OpenAI 的tools格式'''
+        tools_list = []
+
+        for tool in self._tools.values():
+            tools_list.append(tool.to_openai_schema())
+
+        return tools_list
 

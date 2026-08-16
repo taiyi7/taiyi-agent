@@ -36,7 +36,7 @@ class BaseTool(ABC):
 
         # 构造properties和required
         properties: dict[str, dict[str, Any]] = {}
-        required = list[str] = []
+        required: list[str] = []
 
         for param in parameters:
             prop: dict[str, Any] = {
@@ -59,7 +59,7 @@ class BaseTool(ABC):
         
         return {
             "type": "function",
-            "funciton": {
+            "function": {
                 "name" : self.name,
                 "description": self.description,
                 "parameters": {
