@@ -34,7 +34,7 @@ class SimpleAgent(BaseAgent):
         messages = self._build_messages(input)
 
         # 调用大模型进行思考
-        response = self.llm.invoke(messages)
+        response = self.llm.invoke(messages).content
 
         # 保存到历史记录，包含客户问题，以及大模型回答
         self.history.add_history(Message("user", input))
