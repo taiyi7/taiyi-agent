@@ -6,6 +6,7 @@ from taiyi_agent.core.config import Config
 from taiyi_agent.core.message import Message
 from taiyi_agent.history.history import History
 from taiyi_agent.context.context_manager import ContextManager
+from taiyi_agent.context.context_builder import ContextBuilder
 from taiyi_agent.tool.tool_registry import ToolRegistry
 from taiyi_agent.tool.tool_calling import (
     NativeToolCallingStrategy,
