@@ -76,7 +76,7 @@ def test_tool_result_is_added_to_context() -> None:
     tool_result = "广州当前 28 摄氏度，晴。"
     item = ContextItem(
         content=tool_result,
-        item_tpye="tool",
+        item_type="tool",
         relevance_score=1.0,
         token_count=builder._count_token(tool_result),
         timestamp=datetime.now(timezone.utc),
