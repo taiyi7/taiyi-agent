@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from taiyi_agent.core.llm import TaiyiAgentLLM
-from taiyi_agent.context.context_data import ContextItem, ContextConfig, ContextSection
+from taiyi_agent.context.context_data import ContextItem, ContextConfig, ContextSection, BuiltContext
 from taiyi_agent.core.message import Message
 
 try:
@@ -65,6 +65,15 @@ class ContextBuilder:
             return self._format_all_sections(sections)
         return self._compress(sections, available_tokens)
 
+    async def build_messages(
+        self,
+        user_query: str,
+        conversation_history: list[Message] | None = None,
+        system_instructions: str | None = None,
+        additional_items: list[ContextItem] | None = None,
+    ) -> list[]:
+        
+
     def _gather(
         self,
         user_query,
@@ -90,7 +99,7 @@ class ContextBuilder:
         if system_instructions:
             items.append(ContextItem(
                 content=system_instructions,
-                item_tpye="system",
+                item_type="system",
                 relevance_score=1.0,   # 系统指令相关性为1.0
                 token_count=self._count_token(system_instructions),
             ))
@@ -113,7 +122,7 @@ class ContextBuilder:
                 rendered_message = f"[{msg.role}] {msg.content}"
                 items.append(ContextItem(
                     content=rendered_message,
-                    item_tpye="history",
+                    item_type="history",
                     timestamp=msg.timestamp,
                     relevance_score=0.6,   # 历史对话相关性为0.6
                     token_count=self._count_token(rendered_message),
@@ -143,10 +152,10 @@ class ContextBuilder:
             List[ContextPacket]: 选中的信息包列表
         """
         # 1、系统指令和历史属于基础上下文，统一交给 Compress 阶段处理。
-        system_items = [i for i in items if i.item_tpye == "system"]
-        history_items = [i for i in items if i.item_tpye == "history"]
+        system_items = [i for i in items if i.item_type == "system"]
+        history_items = [i for i in items if i.item_type == "history"]
         other_items = [
-            i for i in items if i.item_tpye not in {"system", "history"}
+            i for i in items if i.item_type not in {"system", "history"}
         ]
 
         # 2、计算基础上下文所占的 token
@@ -215,11 +224,11 @@ class ContextBuilder:
         other_context = []
 
         for item in selected_items:
-            if item.item_tpye == "system":
+            if item.item_type == "system":
                 system_instructions.append(item.content)
-            elif item.item_tpye == "rag":
+            elif item.item_type == "rag":
                 evidence.append(item.content)
-            elif item.item_tpye == "history":
+            elif item.item_type == "history":
                 history_items.append(item)
             else:
                 other_context.append(item.content)

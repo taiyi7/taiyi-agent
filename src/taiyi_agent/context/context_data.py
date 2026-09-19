@@ -41,7 +41,7 @@ class ContextItem(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
     content: str = Field(min_length=1)
-    item_tpye: ConextItemType
+    item_type: ConextItemType
 
     source: str | None = None
     source_id: str | None = None
@@ -114,6 +114,11 @@ class ContextConfig(BaseModel):
     enable_memory_retrieval: bool = True
 
 
+class BuiltContext(BaseModel):
+    messages: list[dict[str, Any]]      # OpenAI 兼容格式
+    token_count: int
+    selected_items: list[ContextItem] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 # ContextItem(
 #     content="项目目前正在迁移 PostgreSQL。",
