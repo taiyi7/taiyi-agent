@@ -23,7 +23,8 @@ ContextSectionType = Literal[
 ]
 
 class ContextItem(BaseModel):
-    '''上下文条目数据结构
+    '''上下文条目数据结构。
+    _gather() 和 _select() 方法的输出数据结构
 
     参数：
         model_config： 模型实例化后数值修改需要校验
@@ -41,7 +42,7 @@ class ContextItem(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
     content: str = Field(min_length=1)
-    item_tpye: ConextItemType
+    item_type: ConextItemType
 
     source: str | None = None
     source_id: str | None = None
@@ -60,6 +61,7 @@ class ContextItem(BaseModel):
 
 class ContextSection(BaseModel):
     """压缩前的结构化上下文区块。
+    _structure() 方法的输出数据结构
 
     items 始终保存完整语义条目。对于 history 区块，一个 item 对应一条
     Message，即使消息正文包含换行，也不会在压缩时被拆成多条消息。
@@ -74,6 +76,20 @@ class ContextSection(BaseModel):
     required: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+class BuiltContext(BaseModel):
+    """上下文builder推荐返回的数据结构
+    _compress() 方法的输出数据结构
+
+    参数：
+    messages: OpenAI 兼容格式的消息内容，例如[{"role": "user", "content": user_query}]
+    token_count: messages的token计数
+    selected_items: 上下构建中的selected结果
+    metadata: 其他数据
+    """
+    messages: list[dict[str, Any]]      # OpenAI 兼容格式
+    token_count: int
+    selected_items: list[ContextItem] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 class ContextConfig(BaseModel):
     '''上下文约束配置参数
@@ -112,6 +128,7 @@ class ContextConfig(BaseModel):
     # 开关配置
     enable_compression: bool = True
     enable_memory_retrieval: bool = True
+
 
 
 
