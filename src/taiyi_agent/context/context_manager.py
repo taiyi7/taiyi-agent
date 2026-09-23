@@ -43,8 +43,8 @@ class ContextManager:
         self.history = history or History()
 
         # 只存在于当前turn，不进入长期历史
-        self._turn_item = list[ContextItem],
-        self._turn_messages = list[dict[str, Any]] = []
+        self._turn_items: list[ContextItem] = []
+        self._turn_messages: list[dict[str, Any]] = []
 
         self.last_token_count = 0
         self.turn_id = 0
@@ -52,13 +52,13 @@ class ContextManager:
 
     def begin_turn(self) -> None:
         self.turn_id += 1
-        self._turn_item = []
+        self._turn_items = []
         self. _turn_messages = []
 
     def add_context_item(self, item: ContextItem) -> None:
         # 避免修改原始ContextItem
         # ！ 待确认，这个ContextItem原始数据源在哪
-        self._turn_item.append(deepcopy(item))
+        self._turn_items.append(deepcopy(item))
 
     def add_tool_result(
         self,
@@ -72,7 +72,7 @@ class ContextManager:
             "tool_name": tool_name
         })
 
-        self._turn_item.append(
+        self._turn_items.append(
             ContextItem(
                 content=content,
                 item_type="tool",
@@ -122,6 +122,9 @@ class ContextManager:
         user_input,
         assistant_output,
     ) -> None:
+        """
+        一轮对话结束，将对话内容添加到历史消息中
+        """
         self.history.add_history(
             Message(role="user", content=user_input)
         )
@@ -130,5 +133,5 @@ class ContextManager:
             Message(role="assistant",  content=assistant_output)
         )
 
-        self._turn_item = []
+        self._turn_items = []
         self._turn_messages = []

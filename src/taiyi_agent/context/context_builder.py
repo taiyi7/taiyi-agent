@@ -71,8 +71,82 @@ class ContextBuilder:
         conversation_history: list[Message] | None = None,
         system_instructions: str | None = None,
         additional_items: list[ContextItem] | None = None,
-    ) -> list[]:
+    ) -> BuiltContext:
+        """执行 Gather-Select-Structure-Compress 流水线。
+            但是输出数据结构为 BuiltContext
+        """
         
+        available_tokens = max(
+            self.config.max_tokens - self.config.reverse_tokens,
+            0,
+        )
+
+        items =self._gather(
+            user_query=user_query,
+            conversation_history=conversation_history,
+            system_instructions=system_instructions,
+            additional_items=additional_items or [],
+        )
+
+        selected = self._select(
+            items,
+            user_query,
+            available_tokens,
+        )
+
+        sections = self._structure(selected, user_query)
+
+        formated = (
+            self._format_all_sections(sections)
+            if not self.config.enable_compression
+            else self._compress(sections, available_tokens)
+        )
+
+        messages: list[dict[str, Any]] = []
+
+        # 添加系统提示词
+        if system_instructions:
+            messages.append({
+                "role": "system",
+                "content": system_instructions,
+            })
+
+        # 当前过渡方案
+        # 将压缩后的evidence、 memory、 历史摘要作为额外的 system context
+
+        if formated:
+            messages.append({
+                "role": "system",
+                "content": (
+                    "以下是经过本轮筛选和压缩后的上下文信息：\n\n"
+                    + formated
+                ),
+            })
+
+        # 添加当前用户查询的问题
+        messages.append({
+            "role": "user",
+            "content": user_query, 
+        })
+
+        return BuiltContext(
+            messages=messages,
+            token_count=self._count_token(
+                "\n".join(
+                    str(message["content"])
+                    for message in messages
+                    if message.get("content")
+                )
+            ),
+            selected_items=selected,
+            metadata={
+                "section_count": len(sections),
+                "turn_context": True,
+            },
+        )
+        
+
+
 
     def _gather(
         self,

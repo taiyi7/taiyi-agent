@@ -13,6 +13,8 @@ from taiyi_agent.tool.tool_calling import (
     ToolCallingStrategy,
 )
 
+import asyncio
+
 class StandardAgent(BaseAgent):
     '''
     包含工具管理、上下文管理、记忆管理等能力的标准Agent
@@ -35,20 +37,59 @@ class StandardAgent(BaseAgent):
         self.enable_tool_calling = enable_tool_calling and tool_registry is not None
         self.tool_calling_strategy = tool_calling_strategy or NativeToolCallingStrategy()
 
-    def run(self, input: str, max_tool_iterations: int=3,  **kwargs) -> str:
+    async def async_run(
+        self,
+        user_input: str,
+        max_tool_iterations: int=3,
+        **kwargs: Any,
+    ) -> str:
+        '''StandardAgent的run方法,
+        异步执行，实现工具调用，上下文管理等功能
         '''
-        重写的run方法， 实现工具调用，上下文管理等功能
-        '''
-        messages = self._build_messages(input)
+        self.context.begin_turn()
+
+        messages = await self.context.build_messages(
+            user_input=user_input,
+            system_prompt=self._build_system_prompt(),
+        )
 
         if not self.enable_tool_calling:
             response = self.llm.invoke(messages).content
-            # 保存到历史记录，包含客户问题，以及大模型回答
-            self.history.add_history(Message("user", input))
-            self.history.add_history(Message("assistant", response))
+            self.context.complete_turn(
+                user_input=user_input,
+                assistant_output=response
+            )
             return response
 
-        return self._run_with_tools(messages, input, max_tool_iterations, **kwargs)
+        return self._run_with_tools(
+            messages=messages,
+            user_input=user_input,
+            max_tool_iterations=max_tool_iterations,
+            **kwargs,
+        )
+        
+    def run(
+        self,
+        user_input: str,
+        max_tool_iterations: int=3,
+        **kwargs: Any,
+    ) -> str:
+        """
+        将run()方法包装为同步的run()
+        """
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(
+                self.async_run(
+                    user_input=user_input, 
+                    max_tool_iterations=max_tool_iterations,
+                    **kwargs,
+                )
+            )
+
+        raise RuntimeError("当前时间循环已运行，请使用 await agent.async_run")
+
 
     def _run_with_tools(
         self,
@@ -74,8 +115,10 @@ class StandardAgent(BaseAgent):
 
             # 如果某一轮的大模型答复中没有返回tool_calls, 说明已经得到了答案，循环结束返回结果
             if not response.tool_calls:
-                self.history.add_history(Message("user", user_input))
-                self.history.add_history(Message("assistant", response.content))
+                self.context.complete_turn(
+                    user_input=user_input,
+                    assistant_output=response.content
+                )
                 return response.content
 
             results = [
@@ -88,16 +131,28 @@ class StandardAgent(BaseAgent):
                 )
                 for tool_call in response.tool_calls
             ]
+
+            # 更新工具调用结果到 working_messages 中
             self.tool_calling_strategy.append_tool_results(
                 working_messages,
                 response,
                 results,
             )
 
-        message = "Error: 工具调用次数超过限制"
-        self.history.add_history(Message("user", user_input))
-        self.history.add_history(Message("assistant", message))
-        return message
+            # 同步到ContextManager的当前turn的状态
+            for tool_call, result in results:
+                self.context.add_tool_result(
+                    tool_call_id=tool_call.id,
+                    tool_name=tool_call.name,
+                    content=result,
+                )
+
+        error_message = "Error: 工具调用次数超过限制"
+        self.context.complete_turn(
+            user_input=user_input,
+            assistant_output=error_message,
+        )
+        return error_message
 
 
     def _build_messages(self, input: str) -> List[Dict[str, Any]]:
