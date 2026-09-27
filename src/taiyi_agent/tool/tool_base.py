@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Any
 from pydantic import BaseModel
+import asyncio
+import inspect
 
 class ToolParameter(BaseModel):
     '''工具方法中一个参数的属性定义'''
@@ -26,6 +28,12 @@ class BaseTool(ABC):
     def run(self, parameters: dict[str, Any]) -> str:
         '''工具执行'''
         pass
+
+    async def arun(self, parameters: dict[str, Any]) -> str:
+        result = await asyncio.to_thread(self.run, parameters)
+        if inspect.isawaitable(result):
+            result = await result
+        return str(result)
 
     def to_openai_schema(self) -> dict[str, Any]:
         '''

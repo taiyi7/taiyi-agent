@@ -6,6 +6,7 @@ from taiyi_agent.core.message import Message
 from taiyi_agent.history.history import History
 from taiyi_agent.context.context_builder import ContextBuilder
 from taiyi_agent.context.context_data import ContextSection, ContextConfig, ContextItem
+import asyncio
 
 class ContextManager:
     '''
@@ -20,25 +21,16 @@ class ContextManager:
     8. Manager 更新 token、工具状态和任务状态
     9. 进入下一轮
 
-    伪代码
-        manager.add_message(Message(role="user", content=query))
-
-        messages = builder.build(
-            query=query,
-            state=manager,
-        )
-
-        response = llm.invoke(messages)
-
-        manager.add_message(
-            Message(role="assistant", content=response)
-        )
     '''
     def __init__(
         self,
         builder: ContextBuilder,
-        history: list[Message] | None = None,
+        session_id: int = 0,
+        user_id: int = 0,
+        history: History | None = None,
     ) -> None:
+        session_id = session_id
+        user_id = user_id
         self.builder = builder
         self.history = history or History()
 
@@ -48,6 +40,8 @@ class ContextManager:
 
         self.last_token_count = 0
         self.turn_id = 0
+
+        self.turn_lock = asyncio.Lock()
 
 
     def begin_turn(self) -> None:
