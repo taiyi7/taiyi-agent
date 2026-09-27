@@ -6,6 +6,9 @@ from taiyi_agent.tool.tool_base import ToolParameter
 from taiyi_agent.tool.tool_calling import PromptToolCallingStrategy
 from taiyi_agent.tool.tool_registry import ToolRegistry
 from taiyi_agent.core.llm import TaiyiAgentLLM
+from taiyi_agent.context.context_manager import ContextManager
+from taiyi_agent.context.context_builder import ContextBuilder
+from taiyi_agent.context.context_data import ContextConfig
 
 
 llm = TaiyiAgentLLM()
@@ -31,16 +34,29 @@ def test_native_tool_calling_executes_registered_tool() -> None:
     agent = StandardAgent(
         name="test",
         llm=llm,
-        context=object(),
+        context=ContextManager(
+            ContextBuilder(
+                config=ContextConfig(),
+                llm=llm,
+            ),
+        ),
+        system_prompt="你是天气助手。",
         tool_registry=build_registry(),
     )
+
     print(agent.run("广州今天天气如何"))
 
 def test_prompt_tool_calling_executes_registered_tool() -> None:
     agent = StandardAgent(
         name="test",
         llm=llm,
-        context=object(),
+        context=ContextManager(
+            ContextBuilder(
+                config=ContextConfig(),
+                llm=llm,
+            ),
+        ),
+        system_prompt="你是天气助手。",
         tool_registry=build_registry(),
         tool_calling_strategy=PromptToolCallingStrategy(),
     )

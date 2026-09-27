@@ -12,6 +12,7 @@ from typing import Any
 from taiyi_agent.agents.standard_agent import StandardAgent
 from taiyi_agent.context.context_builder import ContextBuilder
 from taiyi_agent.context.context_data import ContextConfig, ContextItem, ContextSection
+from taiyi_agent.context.context_manager import ContextManager
 from taiyi_agent.core.llm import TaiyiAgentLLM
 from taiyi_agent.core.message import Message
 from taiyi_agent.core.tool_call import LLMResponse, ToolCall
@@ -19,7 +20,7 @@ from taiyi_agent.tool.tool_base import ToolParameter
 from taiyi_agent.tool.tool_registry import ToolRegistry
 
 
-class RecordingTaiyiAgentLLM(TaiyiAgentLLM):
+class RecordingTaiyiAgentLLM():
     """TaiyiAgentLLM 的本地测试实现，不创建真实 OpenAI 客户端。"""
 
     llm_model_id = "test-model"
@@ -29,7 +30,7 @@ class RecordingTaiyiAgentLLM(TaiyiAgentLLM):
         self.responses = list(responses or [])
         self.calls: list[dict[str, Any]] = []
 
-    def invoke(
+    async def ainvoke(
         self,
         messages: list[dict[str, Any]],
         temperature: float | None = None,
@@ -114,7 +115,7 @@ def test_long_context_is_compressed_without_mutating_sections() -> None:
     ]
     original_items = list(sections[1].items)
 
-    rendered = builder._compress(sections, max_token=30)
+    rendered = asyncio.run(builder._compress(sections, max_token=30))
 
     assert builder._count_token(rendered) <= 30
     assert "[Task]" in rendered
@@ -147,10 +148,10 @@ def test_compress_removes_low_priority_optional_section_first() -> None:
         builder._format_all_sections([required, evidence])
     )
 
-    rendered = builder._compress(
+    rendered = asyncio.run(builder._compress(
         [required, evidence, optional_output],
         max_token=budget,
-    )
+    ))
 
     assert builder._count_token(rendered) <= budget
     assert "重要证据：部署必须先检查配置。" in rendered
@@ -181,7 +182,7 @@ def test_history_compression_uses_llm_summary_and_keeps_recent_message() -> None
         priority=50,
     )
 
-    rendered = builder._compress([history], max_token=30)
+    rendered = asyncio.run(builder._compress([history], max_token=30))
 
     assert "[Earlier Conversation Summary]" in rendered
     assert "旧消息摘要" in rendered
@@ -211,7 +212,7 @@ def test_history_compression_falls_back_to_recent_messages_when_llm_fails() -> N
         priority=50,
     )
 
-    rendered = builder._compress([history], max_token=24)
+    rendered = asyncio.run(builder._compress([history], max_token=24))
 
     assert builder._count_token(rendered) <= 24
     assert "最新消息：请开始执行。" in rendered
@@ -229,7 +230,7 @@ def test_task_compression_preserves_head_and_tail() -> None:
         required=True,
     )
 
-    builder._compress_section(task, max_token=30)
+    asyncio.run(builder._compress_section(task, max_token=30))
     compressed = task.items[0]
 
     assert builder._count_token(compressed) <= 30
@@ -259,7 +260,7 @@ def test_required_sections_are_fitted_when_optional_sections_are_gone() -> None:
     headers = [section.model_copy(update={"items": []}) for section in sections]
     header_budget = builder._count_token(builder._format_all_sections(headers)) + 4
 
-    rendered = builder._compress(sections, max_token=header_budget)
+    rendered = asyncio.run(builder._compress(sections, max_token=header_budget))
 
     assert builder._count_token(rendered) <= header_budget
     assert "[Role & Policies]" in rendered
@@ -327,9 +328,11 @@ def test_each_llm_call_receives_tool_call_context() -> None:
     agent = StandardAgent(
         name="context-test",
         llm=llm,
-        context=ContextBuilder(
-            config=ContextConfig(max_tokens=256, reverse_tokens=0),
-            llm=llm,
+        context=ContextManager(
+            ContextBuilder(
+                config=ContextConfig(max_tokens=256, reverse_tokens=0),
+                llm=llm,
+            ),
         ),
         system_prompt="你是天气助手。",
         tool_registry=build_registry(),
@@ -341,18 +344,18 @@ def test_each_llm_call_receives_tool_call_context() -> None:
     assert len(llm.calls) == 2
 
     first_call = llm.calls[0]
-    assert first_call["messages"] == [
-        {"role": "system", "content": "你是天气助手。"},
-        {"role": "user", "content": "广州天气如何？"},
-    ]
+    assert {"role": "system", "content": "你是天气助手。"} in first_call["messages"]
+    assert {"role": "user", "content": "广州天气如何？"} in first_call["messages"]
+
     assert first_call["tools"][0]["function"]["name"] == "get_weather"
 
     second_messages = llm.calls[1]["messages"]
     assert second_messages[0] == first_call["messages"][0]
     assert second_messages[1] == first_call["messages"][1]
-    assert second_messages[2]["role"] == "assistant"
-    assert second_messages[2]["tool_calls"][0]["function"]["name"] == "get_weather"
-    assert second_messages[3] == {
+    assert second_messages[2] == first_call["messages"][2]
+    assert second_messages[3]["role"] == "assistant"
+    assert second_messages[3]["tool_calls"][0]["function"]["name"] == "get_weather"
+    assert second_messages[4] == {
         "role": "tool",
         "tool_call_id": "call-1",
         "content": "广州是晴天",
