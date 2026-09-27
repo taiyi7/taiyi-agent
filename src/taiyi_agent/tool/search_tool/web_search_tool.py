@@ -1,4 +1,6 @@
 from taiyi_agent.tool.tool_base import BaseTool, ToolParameter
+from typing import Any
+import httpx
 
 class WebSearchTool(BaseTool):
     name="网络搜索工具"
@@ -15,3 +17,9 @@ class WebSearchTool(BaseTool):
         ]
     def run(self, quesiton: str) -> str:
         pass
+
+    async def arun(self, parameters: dict[str, Any]) -> str:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(self.endpoint, json=parameters)
+            response.raise_for_status()
+            return response.text

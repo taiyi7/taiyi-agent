@@ -22,13 +22,11 @@ class BaseAgent(ABC):
             self,
             name: str,
             llm: TaiyiAgentLLM,
-            history: Optional[History] = None,
             system_prompt: Optional[str] = None,
             config: Optional[Config] = None,
     ):
         self.name = name
         self.llm = llm
-        self.history = history if history is not None else History()
         self.system_prompt = system_prompt
         self.config = config
 
@@ -37,6 +35,10 @@ class BaseAgent(ABC):
         '''运行Agent'''
         ...
 
+    @abstractmethod
+    async def async_run(self, input_text: str, **kwargs) -> str:
+        ...
+        
     def get_system_prompt(self) -> str:
         '''读取系统提示词'''
         return self.system_prompt
