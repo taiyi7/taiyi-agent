@@ -26,48 +26,16 @@ class StandardAgent(BaseAgent):
             context: ContextManager,
             system_prompt: Optional[str] = None,
             config: Optional[Config] = None,
-            history: Optional[History] = None,
             tool_registry: Optional[ToolRegistry] = None,
             enable_tool_calling: bool = True,
             tool_calling_strategy: Optional[ToolCallingStrategy] = None,
     ):
-        super().__init__(name=name, llm=llm, system_prompt=system_prompt, config=config, history=history)
+        super().__init__(name=name, llm=llm, system_prompt=system_prompt, config=config)
         self.context = context
         self.tool_registry = tool_registry
         self.enable_tool_calling = enable_tool_calling and tool_registry is not None
         self.tool_calling_strategy = tool_calling_strategy or NativeToolCallingStrategy()
 
-    async def async_run(
-        self,
-        user_input: str,
-        max_tool_iterations: int=3,
-        **kwargs: Any,
-    ) -> str:
-        '''StandardAgent的run方法,
-        异步执行，实现工具调用，上下文管理等功能
-        '''
-        self.context.begin_turn()
-
-        messages = await self.context.build_messages(
-            user_input=user_input,
-            system_prompt=self._build_system_prompt(),
-        )
-
-        if not self.enable_tool_calling:
-            response = self.llm.invoke(messages).content
-            self.context.complete_turn(
-                user_input=user_input,
-                assistant_output=response
-            )
-            return response
-
-        return self._run_with_tools(
-            messages=messages,
-            user_input=user_input,
-            max_tool_iterations=max_tool_iterations,
-            **kwargs,
-        )
-        
     def run(
         self,
         user_input: str,
@@ -88,10 +56,40 @@ class StandardAgent(BaseAgent):
                 )
             )
 
-        raise RuntimeError("当前时间循环已运行，请使用 await agent.async_run")
+        raise RuntimeError("当前事件循环已运行，请使用 await agent.async_run")
 
+    async def async_run(
+        self,
+        user_input: str,
+        max_tool_iterations: int=3,
+        **kwargs: Any,
+    ) -> str:
+        '''StandardAgent的异步run方法,
+        异步执行，实现工具调用，上下文管理等功能
+        '''
+        self.context.begin_turn()
 
-    def _run_with_tools(
+        messages = await self.context.build_messages(
+            user_input=user_input,
+            system_prompt=self._build_system_prompt(),
+        )
+
+        if not self.enable_tool_calling:
+            response = await self.llm.ainvoke(messages)
+            self.context.complete_turn(
+                user_input=user_input,
+                assistant_output=response.content
+            )
+            return response.content
+
+        return await self._run_with_tools(
+            messages=messages,
+            user_input=user_input,
+            max_tool_iterations=max_tool_iterations,
+            **kwargs,
+        )
+
+    async def _run_with_tools(
         self,
         messages: List[Dict[str, Any]],
         user_input: str,
@@ -107,7 +105,7 @@ class StandardAgent(BaseAgent):
         )
 
         for _ in range(max_tool_iterations):
-            response = self.tool_calling_strategy.invoke(
+            response = await self.tool_calling_strategy.ainvoke(
                 self.llm,
                 working_messages,
                 self.tool_registry,
@@ -121,26 +119,17 @@ class StandardAgent(BaseAgent):
                 )
                 return response.content
 
-            results = [
-                (
-                    tool_call,
-                    self.tool_registry.execute_tool(
-                        tool_call.name,
-                        tool_call.arguments,
-                    ),
-                )
-                for tool_call in response.tool_calls
-            ]
-
-            # 更新工具调用结果到 working_messages 中
+            results = await asyncio.gather(*[
+                self.tool_registry.aexecute_tool(call.name, call.arguments)
+                for call in response.tool_calls
+            ])
+            pairs = list(zip(response.tool_calls, results))
             self.tool_calling_strategy.append_tool_results(
-                working_messages,
-                response,
-                results,
+                working_messages, response, pairs
             )
 
             # 同步到ContextManager的当前turn的状态
-            for tool_call, result in results:
+            for tool_call, result in pairs:
                 self.context.add_tool_result(
                     tool_call_id=tool_call.id,
                     tool_name=tool_call.name,
@@ -153,24 +142,6 @@ class StandardAgent(BaseAgent):
             assistant_output=error_message,
         )
         return error_message
-
-
-    def _build_messages(self, input: str) -> List[Dict[str, Any]]:
-        # 创建初始消息
-        messages = []
-
-        # 首先添加系统消息
-        system_prompt = self._build_system_prompt()
-        messages.append({"role": "system", "content": system_prompt})
-
-        # 添加历史消息
-        for msg in  self.history.get_history():
-            messages.append({"role": msg.role, "content": msg.content})
-
-        # 添加用户输入内容
-        messages.append({"role": "user", "content": input})
-
-        return messages
 
     def _build_system_prompt(self) -> str:
         '''构建基础系统提示词；工具协议由策略单独注入。'''

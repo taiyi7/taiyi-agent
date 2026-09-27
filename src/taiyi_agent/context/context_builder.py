@@ -9,6 +9,7 @@ from taiyi_agent.core.llm import TaiyiAgentLLM
 from taiyi_agent.context.context_data import ContextItem, ContextConfig, ContextSection, BuiltContext
 from taiyi_agent.core.message import Message
 
+import asyncio
 try:
     import tiktoken
 except ImportError:  # tiktoken 是可选依赖，缺失时使用保守估算。
@@ -36,9 +37,7 @@ class ContextBuilder:
         self.config = config or ContextConfig()
         self.llm = llm
         self._encoding = self._load_encoding(
-            tokenizer_model
-            or os.getenv("QWEN_TOKENIZER_MODEL")
-            or getattr(llm, "llm_model_id", None)
+            tokenizer_model or os.getenv("QWEN_TOKENIZER_MODEL") or getattr(llm, "llm_model_id", None),
         )
 
     async def build(
@@ -59,11 +58,11 @@ class ContextBuilder:
             system_instructions,
             additional_items or [],
         )
-        selected = self._select(items, user_query, available_tokens)
+        selected = await self._select(items, user_query, available_tokens)
         sections = self._structure(selected, user_query)
         if not self.config.enable_compression:
             return self._format_all_sections(sections)
-        return self._compress(sections, available_tokens)
+        return await self._compress(sections, available_tokens)
 
     async def build_messages(
         self,
@@ -88,7 +87,7 @@ class ContextBuilder:
             additional_items=additional_items or [],
         )
 
-        selected = self._select(
+        selected = await self._select(
             items,
             user_query,
             available_tokens,
@@ -99,7 +98,7 @@ class ContextBuilder:
         formated = (
             self._format_all_sections(sections)
             if not self.config.enable_compression
-            else self._compress(sections, available_tokens)
+            else await self._compress(sections, available_tokens)
         )
 
         messages: list[dict[str, Any]] = []
@@ -113,7 +112,6 @@ class ContextBuilder:
 
         # 当前过渡方案
         # 将压缩后的evidence、 memory、 历史摘要作为额外的 system context
-
         if formated:
             messages.append({
                 "role": "system",
@@ -145,8 +143,6 @@ class ContextBuilder:
             },
         )
         
-
-
 
     def _gather(
         self,
@@ -206,10 +202,10 @@ class ContextBuilder:
         if additional_items:
             items.extend(additional_items)
 
-        print(f"ConextItem汇聚了{len(items)}个候选上下文条目")
+        print(f"[ContextBuilder] _gather汇聚了{len(items)}个候选上下文条目(ContextItem)")
         return items
 
-    def _select(
+    async def _select(
         self,
         items: list[ContextItem],
         user_query: str,
@@ -246,7 +242,7 @@ class ContextBuilder:
         for item in other_items:
             # 计算相关性分数
             if item.relevance_score == 0.0:    # 默认值，需要计算相关性分数
-                relevance = self._calculate_relevance(item.content, user_query)
+                relevance = await self._calculate_relevance(item.content, user_query)
                 item.relevance_score = relevance
 
             # 计算新鲜度分数
@@ -275,7 +271,7 @@ class ContextBuilder:
                 current_tokens += item.token_count
             # 当前条目过大时继续尝试后续较小条目。
 
-        print(f"[ContextBuilder] 选择了 {len(selected)} 个信息包,共 {current_tokens} tokens")
+        print(f"[ContextBuilder] _select 选择了 {len(selected)} 个信息包,共 {current_tokens} tokens")
         return selected
 
     def _structure(
@@ -368,7 +364,7 @@ class ContextBuilder:
 
         return sections
 
-    def _compress(
+    async def _compress(
         self,
         sections: list[ContextSection],
         max_token: int,
@@ -383,7 +379,7 @@ class ContextBuilder:
             return formatted
 
         print(
-            f"[ContextBuilder]上下文超限current_tokens: {used_token} > "
+            f"[ContextBuilder] _compress 上下文超限current_tokens: {used_token} > "
             f"max_token:{max_token}。进行压缩"
         )
 
@@ -400,7 +396,7 @@ class ContextBuilder:
 
             before = self._get_section_body_tokens(section)
             target = max(before - (used_token - max_token), 0)
-            self._compress_section(section, target)
+            await self._compress_section(section, target)
 
             # 截断器可能因 tokenizer 的粒度无法继续缩短，此时直接移除区块。
             if self._get_section_body_tokens(section) >= before:
@@ -414,9 +410,9 @@ class ContextBuilder:
 
         if used_token <= max_token:
             return formatted
-        return self._fit_required_sections(working, max_token)
+        return await self._fit_required_sections(working, max_token)
 
-    def _compress_history_section(
+    async def _compress_history_section(
         self,
         section: ContextSection,
         max_token: int,
@@ -461,7 +457,7 @@ class ContextBuilder:
                 ),
             )
             if summary_budget > 0:
-                summary = self._summarize_messages(
+                summary = await self._summarize_messages(
                     old_messages,
                     summary_budget,
                 )
@@ -480,14 +476,14 @@ class ContextBuilder:
                 max_token,
             )
 
-    def _summarize_messages(self, messages: list[str], max_token: int) -> str:
+    async def _summarize_messages(self, messages: list[str], max_token: int) -> str:
         """优先使用 LLM 摘要旧消息，失败时按消息边界降级。"""
         if max_token <= 0:
             return ""
 
         if self.llm is not None:
             try:
-                response = self.llm.invoke([
+                response = await self.llm.ainvoke([
                     {
                         "role": "system",
                         "content": (
@@ -520,7 +516,7 @@ class ContextBuilder:
         keep_count: int,
         max_token: int,
     ) -> tuple[list[str], list[str]]:
-        """返回预算内的最近消息，以及未纳入窗口的旧消息。"""
+        """返回：1、预算内的最近消息，2、未纳入窗口的待压缩的旧消息。"""
         if keep_count <= 0:
             return [], list(messages)
 
@@ -592,7 +588,7 @@ class ContextBuilder:
             max_token,
         )
 
-    def _compress_section(self, section: ContextSection, max_token: int) -> None:
+    async def _compress_section(self, section: ContextSection, max_token: int) -> None:
         """按区块类型选择相应的压缩策略。"""
         if max_token <= 0:
             section.items = []
@@ -603,7 +599,7 @@ class ContextBuilder:
             return
 
         if section.section_type == "history":
-            self._compress_history_section(section, max_token)
+            await self._compress_history_section(section, max_token)
         elif section.section_type in {"task", "context"}:
             section.items = [self._head_tail_truncate(body, max_token)]
         else:
@@ -611,7 +607,7 @@ class ContextBuilder:
 
         section.items = [item for item in section.items if item]
 
-    def _fit_required_sections(
+    async def _fit_required_sections(
         self,
         sections: list[ContextSection],
         max_token: int,
@@ -656,7 +652,7 @@ class ContextBuilder:
                 max_token - self._count_token(task.title + "\n"),
                 0,
             )
-            self._compress_section(task_only, body_budget)
+            await self._compress_section(task_only, body_budget)
             formatted = self._format_single_section(task_only)
             if self._count_token(formatted) <= max_token:
                 return formatted
@@ -691,7 +687,7 @@ class ContextBuilder:
                 if section.section_type == "role_policies"
                 else task_budget
             )
-            self._compress_section(section, budget)
+            await self._compress_section(section, budget)
 
         # 格式化并统计最终 token
         formatted, used_token = self._formatted_with_tokens(fitted)
@@ -707,7 +703,7 @@ class ContextBuilder:
                 break
             before = self._get_section_body_tokens(victim)
             overflow = used_token - max_token
-            self._compress_section(
+            await self._compress_section(
                 victim,
                 max(before - overflow, 0),
             )
@@ -764,10 +760,12 @@ class ContextBuilder:
             return text[-low:] if low else ""
         return text[:low]
 
-    def _calculate_relevance(self, context: str, query: str) -> float:
+    async def _calculate_relevance(self, context: str, query: str) -> float:
         """计算内容和查询问题的相关性,使用向量相似度计算"""
-        emb_context = self._get_embedding(context)
-        emb_query = self._get_embedding(query)
+        emb_context, emb_query = await asyncio.gather(
+            self._get_embedding(context),
+            self._get_embedding(query),
+        )
 
         dot = sum(left * right for left, right in zip(emb_context, emb_query))
         norm_c = math.sqrt(sum(value * value for value in emb_context))
@@ -778,12 +776,15 @@ class ContextBuilder:
         score = float(dot / (norm_c * norm_q))     # [-1, 1]
         return (score + 1.0) / 2.0                 # [0, 1]
 
-    def _get_embedding(self, text: str) -> list[float]:
+    async def _get_embedding(self, text: str) -> list[float]:
         """把文本转化为向量"""
-        from openai import OpenAI
-        client = OpenAI()
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            base_url=os.getenv("OPENAI_BASE_URL"),
+        )
         model = os.getenv("OPENAI_EMBEDDING_MODEL", "qwen3.7-text-embedding")
-        response = client.embeddings.create(
+        response = await client.embeddings.create(
             input=[text],
             model=model
         )

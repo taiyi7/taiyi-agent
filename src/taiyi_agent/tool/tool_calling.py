@@ -19,13 +19,13 @@ class ToolCallingStrategy(ABC):
         """在首次大模型调用之前添加特定的工具调用策略"""
 
     @abstractmethod
-    def invoke(
+    async def ainvoke(
         self,
         llm: TaiyiAgentLLM,
         messages: list[dict[str, Any]],
         registry: ToolRegistry,
     ) -> LLMResponse:
-        """调用大模型返回包含工具调用信息的结果"""
+        """异步调用大模型返回包含工具调用信息的结果"""
 
     @abstractmethod
     def append_tool_results(
@@ -47,13 +47,13 @@ class NativeToolCallingStrategy(ToolCallingStrategy):
     ) -> list[dict[str, Any]]:
         return list(messages)
 
-    def invoke(
+    async def ainvoke(
         self,
         llm: TaiyiAgentLLM,
         messages: list[dict[str, Any]],
         registry: ToolRegistry,
     ) -> LLMResponse:
-        return llm.invoke(messages, tools=registry.get_openai_tools())
+        return await llm.ainvoke(messages, tools=registry.get_openai_tools())
 
     def append_tool_results(
         self,
@@ -98,13 +98,13 @@ class PromptToolCallingStrategy(ToolCallingStrategy):
             *messages,
         ]
 
-    def invoke(
+    async def ainvoke(
         self,
         llm: TaiyiAgentLLM,
         messages: list[dict[str, Any]],
         registry: ToolRegistry,
     ) -> LLMResponse:
-        response = llm.invoke(messages)
+        response = await llm.ainvoke(messages)
         tool_call = self._parse_tool_call(response.content)
         if tool_call is None:
             return response

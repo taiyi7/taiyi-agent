@@ -2,6 +2,7 @@
 from typing import Any, Callable
 from taiyi_agent.tool.tool_base import BaseTool, ToolParameter
 from taiyi_agent.tool.function_tool.function_tool import FunctionTool
+import asyncio
 
 class ToolRegistry:
     '''
@@ -92,15 +93,25 @@ class ToolRegistry:
             "不需要调用工具时，直接正常回答用户。"
         )
 
-    def execute_tool(self, name:str, parameters: dict[str, Any]) -> str:
-        '''执行注册表中的工具'''
-        if name in self._tools:
-            try:
-                return self._tools[name].run(parameters)
-            except Exception as e:
-                return f"Error：执行工具{name}时报错：{str(e)}"
-        else:
+    async def aexecute_tool(
+        self,
+        name:str,
+        parameters: dict[str, Any],
+        timeout: float=60.0,
+    ) -> str:
+        '''异步执行注册表中的工具'''
+        tool = self._tools.get(name)
+        if tool is None:
             return f"Error：未找到名字为'{name}'的工具"
+
+        try:
+            async with asyncio.timeout(timeout):
+                return await tool.arun(parameters)
+        except TimeoutError:
+            return f"Error: 工具{name}执行超时"
+        except Exception as exc:
+            return f"Error：执行工具{name}时报错：{str(exc)}"
+
 
     def get_openai_tools(self) -> list[dict[str, Any]]:
         '''将基类对象工具的参数转化成 OpenAI 的tools格式'''

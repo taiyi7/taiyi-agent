@@ -29,7 +29,7 @@ class Config(BaseModel):
         return cls(
             debug=os.getenv("DEBUG", "false").lower() == "true",
             log_level=os.getenv("LOG_LEVEL", "INFO"),
-            temperature=float(os.getenv("TEMPERATURE", "1.999")),
+            temperature=float(os.getenv("TEMPERATURE", "0.6")),
         )
     
     def to_dict(self) -> Dict[str, Any]:

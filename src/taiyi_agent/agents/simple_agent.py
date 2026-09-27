@@ -15,11 +15,12 @@ class SimpleAgent(BaseAgent):
             self,
             name: str,
             llm: TaiyiAgentLLM,
-            history: Optional[History] = None,
             system_prompt: Optional[str] = None,
-            config: Optional[Config] = None
+            config: Optional[Config] = None,
+            history: History | None = None,
     ):
-        super().__init__(name, llm, history, system_prompt, config)
+        super().__init__(name, llm, system_prompt, config)
+        self.history = history or History()
 
     # 重写run方法， 实现简单的对话功能, 默认采用非流式输出
     def run(self, input: str, **kwargs) -> str:
@@ -42,6 +43,7 @@ class SimpleAgent(BaseAgent):
 
         return response
 
+
     # 流式输出的run功能
     def stream_run(self, input: str, **kwargs) -> Iterator[str]:
         '''
@@ -63,6 +65,14 @@ class SimpleAgent(BaseAgent):
         # 保存到历史记录，包含客户问题，以及大模型回答
         self.history.add_history(Message("user", input))
         self.history.add_history(Message("assistant", full_output))
+
+    async def async_run(self, input: str, **kwargs) -> str:
+        '''异步非流式输出'''
+        messages = self._build_messages(input)
+        response = await self.llm.ainvoke(messages)
+        self.history.add_history(Message("user", input))
+        self.history.add_history(Message("assistant", response.content))
+        return response.content
     
     def _build_messages(self, input: str) -> List[Dict[str, Any]]:
         # 创建初始消息
