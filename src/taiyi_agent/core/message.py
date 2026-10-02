@@ -1,9 +1,15 @@
 '''消息系统'''
-from typing import Literal, Optional, Dict, Any
+from typing import Literal, Any
 from pydantic import BaseModel, Field
-from datetime import datetime
+from datetime import datetime, timezone
 
-MessageRole = Literal["user", "assistant", "system", "tool", "developer"]
+MessageRole = Literal[
+    "user",
+    "assistant",
+    "system",
+    "tool",
+    "developer",
+]
 
 # Message 继承 pydantic.BaseModel，主要是为了让消息对象具备自动校验、类型转换和序列化能力。
 class Message(BaseModel):
@@ -27,25 +33,47 @@ class Message(BaseModel):
     '''
 
     role: MessageRole                   # 无默认值，实例初始化必传值 （属于模型字段，不是类变量）
-    content: str                        # 无默认值，实例初始化必传值 （属于模型字段，不是类变量）
-    timestamp: datetime = Field(default_factory=datetime.now)     # 每个实例创建时都会获得独立时间
-    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)     # 每个实例创建时都会获得独立的元数据
+    content: str | None = None
 
-    # BaseModel的子类执行 super().__init__ 支持传入当前 Model 全部字段名 + Pydantic 内置配置参数。
-    def __init__(self, role: MessageRole, content: str, **kwargs):
-        super().__init__(
-            role=role,
-            content=content,
-            timestamp=kwargs.get('timestamp', datetime.now()),
-            metadata=kwargs.get('metadata', {})
-        )
+    # 原生工具调用消息
+    tool_calls: list[dict[str,Any]] | None = None
+    tool_call_id: str | None = None
+    name: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)     # 每个实例创建时都会获得独立时间
+    )     
+    metadata: dict[str, Any] = Field(default_factory=dict)     # 每个实例创建时都会获得独立的元数据
+
+    def to_openai_dict(self) -> dict[str, Any]:
         '''将消息内容转化为字典格式，符合OpenAI的API'''
-        return {
+        message: dict[str, Any] = {
             "role": self.role,
-            "content": self.content
         }
 
-    def __str__(self) -> str:
-        return f"[{self.role}] {self.content}"
+        if self.content is not None:
+            message["content"] = self.content
+
+        if self.tool_calls is not None:
+            message["tool_calls"] = self.tool_calls
+
+        if self.tool_call_id is not None:
+            message["tool_call_id"] = self.tool_call_id
+
+        if self.name is not None:
+            message["name"] = self.name
+
+        return message
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: dict[str, Any],
+    ) -> "Message":
+        return cls(
+            role=data["role"],
+            content=data.get("content"),
+            tool_calls=data.get("tool_calls"),
+            tool_call_id=data.get("tool_call_id"),
+            name=data.get("name"),
+        )

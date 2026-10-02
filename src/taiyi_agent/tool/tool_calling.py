@@ -138,7 +138,10 @@ class PromptToolCallingStrategy(ToolCallingStrategy):
 
         try:
             data = json.loads(text)
+
         except json.JSONDecodeError:
+            return None
+        if not isinstance(data, dict):
             return None
 
         if (

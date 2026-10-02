@@ -10,7 +10,7 @@ import os
 from taiyi_agent.agents.standard_agent import StandardAgent
 from taiyi_agent.context.context_builder import ContextBuilder
 from taiyi_agent.context.context_data import ContextConfig, ContextItem
-from taiyi_agent.context.context_manager import ContextManager
+from taiyi_agent.context.context_assembler import ContextAssembler
 from taiyi_agent.core.llm import TaiyiAgentLLM
 from taiyi_agent.tool.tool_base import ToolParameter
 from taiyi_agent.tool.tool_calling import PromptToolCallingStrategy
@@ -38,7 +38,7 @@ def _has_llm_configuration() -> bool:
 #     return ContextBuilder(
 #         config=ContextConfig(
 #             max_tokens=4096,
-#             reverse_tokens=0,
+#             reserved_output_tokens=0,
 #             max_history_messages=20,
 #         ),
 #         llm=llm,
@@ -53,13 +53,13 @@ llm = TaiyiAgentLLM()
 builder = ContextBuilder(
     config=ContextConfig(
         max_tokens=4096,
-        reverse_tokens=0,
+        reserved_output_tokens=0,
         max_history_messages=20,
     ),
     llm=llm,
 )
 
-context = ContextManager(builder=builder)
+context = ContextAssembler(builder=builder)
 
 def _make_registry() -> ToolRegistry:
     registry = ToolRegistry()
@@ -79,7 +79,7 @@ def _make_registry() -> ToolRegistry:
 
 
 def test_context_builder_and_manager_build_real_messages(
-    context: ContextManager,
+    context: ContextAssembler,
 ) -> None:
     """真实 Builder 和 Manager 应生成完整的 system/context/user 消息。"""
     context.begin_turn()
@@ -113,7 +113,7 @@ def test_context_builder_and_manager_build_real_messages(
 
 def test_standard_agent_async_run_uses_real_context_and_llm(
     llm: TaiyiAgentLLM,
-    context: ContextManager,
+    context: ContextAssembler,
 ) -> None:
     """异步 Agent 应通过真实 ContextManager 构建消息并完成一轮。"""
     agent = StandardAgent(
@@ -142,7 +142,7 @@ def test_standard_agent_sync_run_uses_real_context_and_llm(
     builder: ContextBuilder,
 ) -> None:
     """同步 run 应通过 asyncio 适配器调用真实 async_run。"""
-    context = ContextManager(builder=builder)
+    context = ContextAssembler(builder=builder)
     agent = StandardAgent(
         name="real-context-sync-agent",
         llm=llm,
@@ -168,7 +168,7 @@ def test_standard_agent_tool_call_updates_real_context(
     builder: ContextBuilder,
 ) -> None:
     """工具循环应使用真实 LLM、工具注册表和 ContextManager。"""
-    context = ContextManager(builder=builder)
+    context = ContextAssembler(builder=builder)
     agent = StandardAgent(
         name="real-tool-context-agent",
         llm=llm,

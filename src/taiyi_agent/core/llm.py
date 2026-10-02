@@ -76,8 +76,8 @@ class TaiyiAgentLLM:
             print(f"[TaiyiAgentLLM]✅ 本次大模型调用 {self.llm_model_id} -同步-非流式-输出完成：")
             return self._parse_response(response)
 
-        except Exception as e:
-            raise LLMException(f"❌ -同步-非流式-输出LLM API时报错:{str(e)}")
+        except Exception as exc:
+            raise LLMException(f"❌ -同步-非流式-输出LLM API时报错:{str(exc)}")
 
     def stream(
         self,
@@ -102,13 +102,19 @@ class TaiyiAgentLLM:
                 if content:
                     yield content
             print("[TaiyiAgentLLM]\n✅ 本次大模型-同步-流式-输出完成")
-        except Exception as e:
-            raise LLMException(f"❌ -同步-流式-输出LLM API时报错: {str(e)}")
+        except Exception as exc:
+            raise LLMException(f"❌ -同步-流式-输出LLM API时报错: {str(exc)}")
 
 
 # ========= LLM调用 异步方法 =========
 
-    async def ainvoke(self, messages, temperature=None, *, tools=None):
+    async def ainvoke(
+        self,
+        messages: list[dict[str, Any]],
+        temperature: Optional[float] = None,
+        *,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> LLMResponse:
         '''
         异步非流式输出llm结果
         '''
@@ -117,10 +123,17 @@ class TaiyiAgentLLM:
             response = await self.async_client.chat.completions.create(**payload)
             print(f"[TaiyiAgentLLM]✅ 本次大模型调用 {self.llm_model_id} -异步-非流式-输出完成：")
             return self._parse_response(response)
-        except Exception as e:
-            raise LLMException(f"❌ -异步-非流式-输出LLM API时报错:{str(e)}")
+        except Exception as exc:
+            raise LLMException(f"❌ -异步-非流式-输出LLM API时报错:{str(exc)}")
 
-    async def astream(self, messages, temperature=None, *, tools=None) -> AsyncIterator[str]:
+    async def astream(
+        self,
+        messages: list[dict[str, Any]],
+        temperature: Optional[float] = None,
+        *,
+        tools: list[dict[str, Any]] | None = None,
+    ) -> AsyncIterator[str]:
+
         '''
         异步流式输出llm结果
         '''

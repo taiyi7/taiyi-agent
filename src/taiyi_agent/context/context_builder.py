@@ -1,3 +1,5 @@
+import asyncio
+import json
 import math
 import os
 from copy import deepcopy
@@ -8,15 +10,7 @@ from typing import Any
 from taiyi_agent.core.llm import TaiyiAgentLLM
 from taiyi_agent.context.context_data import ContextItem, ContextConfig, ContextSection, BuiltContext
 from taiyi_agent.core.message import Message
-
-import asyncio
-try:
-    import tiktoken
-except ImportError:  # tiktoken 是可选依赖，缺失时使用保守估算。
-    tiktoken = None
-
-# 使用标准 ASCII 连字符，且允许调用方通过环境变量覆盖镜像地址。
-os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+from taiyi_agent.context.token_counter import TokenCounter
 
 load_dotenv()
 
@@ -31,14 +25,15 @@ class ContextBuilder:
         config: ContextConfig | None = None,
         llm: TaiyiAgentLLM | None = None,
         tokenizer_model: str | None = None,
+        token_counter: TokenCounter | None = None,
     ):
         # self.memory_tool = memory_tool
         # self.rag_tool = rag_tool
         self.config = config or ContextConfig()
         self.llm = llm
-        self._encoding = self._load_encoding(
-            tokenizer_model or os.getenv("QWEN_TOKENIZER_MODEL") or getattr(llm, "llm_model_id", None),
-        )
+
+        tokenizer_model = tokenizer_model or os.getenv("QWEN_TOKENIZER_MODEL")
+        self.token_counter = (token_counter or TokenCounter(tokenizer_model=tokenizer_model))
 
     async def build(
         self,
@@ -47,13 +42,14 @@ class ContextBuilder:
         system_instructions: str | None = None,
         additional_items: list[ContextItem] | None = None,
     ) -> str:
-        """执行 Gather-Select-Structure-Compress 流水线。"""
-        available_tokens = max(
-            self.config.max_tokens - self.config.reverse_tokens,
-            0,
-        )
+        """
+        执行 Gather-Select-Structure-Compress 流水线。
+
+        输出结构为 str
+        """
+        available_tokens = self.config.input_limit
+            
         items = self._gather(
-            user_query,
             conversation_history or [],
             system_instructions,
             additional_items or [],
@@ -64,6 +60,7 @@ class ContextBuilder:
             return self._format_all_sections(sections)
         return await self._compress(sections, available_tokens)
 
+
     async def build_messages(
         self,
         user_query: str,
@@ -71,17 +68,15 @@ class ContextBuilder:
         system_instructions: str | None = None,
         additional_items: list[ContextItem] | None = None,
     ) -> BuiltContext:
-        """执行 Gather-Select-Structure-Compress 流水线。
-            但是输出数据结构为 BuiltContext
+        """
+        执行 Gather-Select-Structure-Compress 流水线。
+        
+        输出数据结构为 BuiltContext
         """
         
-        available_tokens = max(
-            self.config.max_tokens - self.config.reverse_tokens,
-            0,
-        )
+        available_tokens = self.config.input_limit
 
         items =self._gather(
-            user_query=user_query,
             conversation_history=conversation_history,
             system_instructions=system_instructions,
             additional_items=additional_items or [],
@@ -115,6 +110,7 @@ class ContextBuilder:
         if formated:
             messages.append({
                 "role": "system",
+                "name": "context_summary",
                 "content": (
                     "以下是经过本轮筛选和压缩后的上下文信息：\n\n"
                     + formated
@@ -129,24 +125,43 @@ class ContextBuilder:
 
         return BuiltContext(
             messages=messages,
-            token_count=self._count_token(
-                "\n".join(
-                    str(message["content"])
-                    for message in messages
-                    if message.get("content")
-                )
-            ),
+            token_count=self.token_counter.count_messages(messages),
             selected_items=selected,
             metadata={
                 "section_count": len(sections),
                 "turn_context": True,
             },
         )
+
+
+    async def compress_trace(
+        self,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+    ) -> str:
+        """
+        将已经完成的 Agent 消息压缩成文本摘要。
         
+        主要用于对话过程中 token 超限压缩
+        """
+        if not messages or max_tokens <= 0:
+            return ""
+
+        formatted = [
+            json.dumps(message, ensure_ascii=False, default=str)
+            for message in messages
+        ]
+
+        summary = await self.summarize_messages(
+            messages=formatted,
+            max_tokens=max_tokens
+        )
+
+        return summary
+
 
     def _gather(
         self,
-        user_query,
         conversation_history: list[Message],
         system_instructions: str | None,
         additional_items: list[ContextItem]
@@ -155,7 +170,6 @@ class ContextBuilder:
         """汇集所有候选信息
 
         Args:
-            user_query: 用户查询
             conversation_history: 对话历史
             system_instructions: 系统指令
             additional_items: 自定义信息包
@@ -171,7 +185,7 @@ class ContextBuilder:
                 content=system_instructions,
                 item_type="system",
                 relevance_score=1.0,   # 系统指令相关性为1.0
-                token_count=self._count_token(system_instructions),
+                token_count=self.token_counter.count_text(system_instructions),
             ))
 
         # 1、 从记忆中获取任务状态与关键结论
@@ -195,7 +209,7 @@ class ContextBuilder:
                     item_type="history",
                     timestamp=msg.timestamp,
                     relevance_score=0.6,   # 历史对话相关性为0.6
-                    token_count=self._count_token(rendered_message),
+                    token_count=self.token_counter.count_text(rendered_message),
                 ))
 
         # 4、 添加额外上下文
@@ -430,7 +444,7 @@ class ContextBuilder:
         summary_header = "[Earlier Conversation Summary]\n"
         can_summarize = (
             len(messages) > 1
-            and max_token > self._count_token(summary_header)
+            and max_token > self.token_counter.count_text(summary_header)
         )
         summary_reserve = (
             min(self.config.history_summary_max_tokens, max_token // 3)
@@ -451,13 +465,13 @@ class ContextBuilder:
                 self.config.history_summary_max_tokens,
                 max(
                     max_token
-                    - self._count_token("\n".join(recent_messages))
-                    - self._count_token(summary_header),
+                    - self.token_counter.count_text("\n".join(recent_messages))
+                    - self.token_counter.count_text(summary_header),
                     0,
                 ),
             )
             if summary_budget > 0:
-                summary = await self._summarize_messages(
+                summary = await self.summarize_messages(
                     old_messages,
                     summary_budget,
                 )
@@ -476,38 +490,63 @@ class ContextBuilder:
                 max_token,
             )
 
-    async def _summarize_messages(self, messages: list[str], max_token: int) -> str:
+    async def summarize_messages(
+        self, 
+        messages: list[str],
+        max_tokens: int,
+        *,
+        system_prompt_override: str | None = None
+    ) -> str:
         """优先使用 LLM 摘要旧消息，失败时按消息边界降级。"""
-        if max_token <= 0:
+        if max_tokens <= 0:
             return ""
+
+        summarize_prompt = (
+            "你是对话历史压缩器。只总结给定的旧消息，保留用户目标、"
+            "重要约束、关键参数、已确认结论、已执行工具及其关键结果、"
+            "文件路径、命令、错误和未完成步骤。"
+            "不要编造，不要输出新的分段标题。"
+        )
+        system_prompt = system_prompt_override or summarize_prompt
 
         if self.llm is not None:
             try:
-                response = await self.llm.ainvoke([
+                llm_messages = [
                     {
                         "role": "system",
-                        "content": (
-                            "你是对话历史压缩器。只总结给定的旧消息，保留用户目标、"
-                            "重要约束、已确认结论、文件路径、命令、错误和未决事项。"
-                            "不要编造，不要输出新的分段标题。"
-                        ),
+                        "content": system_prompt,
                     },
                     {
                         "role": "user",
                         "content": (
-                            f"请将以下旧消息压缩到约 {max_token} tokens：\n\n"
+                            f"请将以下旧消息压缩到约 {max_tokens} tokens:\n\n"
                             + "\n\n".join(messages)
                         ),
-                    },
-                ], temperature=0.0)
+                    }
+                ]
+                # 超长工具结果也可能撑满摘要请求；摘要输入同样受总预算约束。
+                body_budget = self.config.input_limit - self.token_counter.count_messages([
+                    llm_messages[0], {"role": "user", "content": ""},
+                ])
+                if body_budget <= 0:
+                    raise ValueError("输入预算不足以容纳摘要提示词")
+                while self.token_counter.count_messages(llm_messages) > self.config.input_limit:
+                    content = llm_messages[1]["content"]
+                    llm_messages[1]["content"] = self._head_tail_truncate(content, body_budget)
+                    overflow = self.token_counter.count_messages(llm_messages) - self.config.input_limit
+                    body_budget = max(body_budget - max(overflow, 1), 0)
+                response = await self.llm.ainvoke(
+                    messages=llm_messages,
+                    temperature=0.0
+                )
                 summary = getattr(response, "content", response)
                 if isinstance(summary, str) and summary.strip():
-                    return self._truncate_text(summary.strip(), max_token)
+                    return self._truncate_text(summary.strip(), max_tokens)
             except Exception as exc:
                 print(f"[ContextBuilder] 历史摘要调用失败，使用本地降级策略: {exc}")
 
         # 降级时仍以消息为单位，优先保留较新的旧消息。
-        excerpts = self._fit_recent_messages(messages, max_token)
+        excerpts = self._fit_recent_messages(messages, max_tokens)
         return "\n".join(excerpts)
 
     def _take_recent_messages(
@@ -541,7 +580,7 @@ class ContextBuilder:
         selected: list[str] = []
         for message in reversed(messages):
             candidate = [message] + selected
-            if self._count_token("\n".join(candidate)) <= max_token:
+            if self.token_counter.count_text("\n".join(candidate)) <= max_token:
                 selected = candidate
                 continue
 
@@ -556,11 +595,11 @@ class ContextBuilder:
         """滑动窗口截断：优先保留开头和结尾，中间内容被省略。"""
         if max_token <= 0:
             return ""
-        if self._count_token(text) <= max_token:
+        if self.token_counter.count_text(text) <= max_token:
             return text
 
         marker = "\n...[middle omitted]...\n"
-        marker_count = self._count_token(marker)
+        marker_count = self.token_counter.count_text(marker)
         if max_token <= marker_count + 1:
             return self._truncate_text(text, max_token, from_end=True)
 
@@ -570,15 +609,15 @@ class ContextBuilder:
         tail_budget = content_budget - head_budget
 
         # 优先使用编码器编码处理，只保留头和尾巴内容
-        if self._encoding is not None:
-            tokens = self._encoding.encode(text)
-            marker_tokens = self._encoding.encode(marker)
+        if self.token_counter._encoding is not None:
+            tokens = self.token_counter._encoding.encode(text)
+            marker_tokens = self.token_counter._encoding.encode(marker)
             combined = (
                 tokens[:head_budget]
                 + marker_tokens
                 + (tokens[-tail_budget:] if tail_budget else [])
             )
-            return self._encoding.decode(combined)
+            return self.token_counter._encoding.decode(combined)
 
         head_chars = head_budget * 4
         tail_chars = tail_budget * 4
@@ -595,7 +634,7 @@ class ContextBuilder:
             return
 
         body = "\n".join(section.items)
-        if self._count_token(body) <= max_token:
+        if self.token_counter.count_text(body) <= max_token:
             return
 
         if section.section_type == "history":
@@ -640,21 +679,21 @@ class ContextBuilder:
         headers_only = [deepcopy(section) for section in required]
         for section in headers_only:
             section.items = []
-        overhead = self._count_token(self._format_all_sections(headers_only))
+        overhead = self.token_counter.count_text(self._format_all_sections(headers_only))
 
         # 2、只保留标题的情况下依旧超预算，需要进一步降级处理，只保留task部分
         if overhead > max_token:
-            if self._count_token(task.title) > max_token:
+            if self.token_counter.count_text(task.title) > max_token:
                 return ""
 
             task_only = deepcopy(task)
             body_budget = max(
-                max_token - self._count_token(task.title + "\n"),
+                max_token - self.token_counter.count_text(task.title + "\n"),
                 0,
             )
             await self._compress_section(task_only, body_budget)
             formatted = self._format_single_section(task_only)
-            if self._count_token(formatted) <= max_token:
+            if self.token_counter.count_text(formatted) <= max_token:
                 return formatted
             return task.title
 
@@ -721,14 +760,14 @@ class ContextBuilder:
         return "\n\n".join(self._format_single_section(section) for section in sections)
 
     def _get_section_body_tokens(self, section: ContextSection) -> int:
-        return self._count_token("\n".join(section.items))
+        return self.token_counter.count_text("\n".join(section.items))
 
     def _formatted_with_tokens(
         self,
         sections: list[ContextSection],
     ) -> tuple[str, int]:
         formatted = self._format_all_sections(sections)
-        return formatted, self._count_token(formatted)
+        return formatted, self.token_counter.count_text(formatted)
 
     def _truncate_text(
         self,
@@ -737,28 +776,7 @@ class ContextBuilder:
         *,
         from_end: bool = False,
     ) -> str:
-        """以 token 为单位截断文本，避免字符截断破坏编码。"""
-        if max_token <= 0 or not text:
-            return ""
-
-        # 优先使用实例自带编码器
-        if self._encoding is not None:
-            tokens = self._encoding.encode(text)
-            selected = tokens[-max_token:] if from_end else tokens[:max_token]
-            return self._encoding.decode(selected)
-
-        # 当实例编码器为空时，使用二分法查找截断
-        low, high = 0, len(text)
-        while low < high:
-            middle = (low + high + 1) // 2
-            candidate = text[-middle:] if from_end else text[:middle]
-            if self._count_token(candidate) <= max_token:
-                low = middle
-            else:
-                high = middle - 1
-        if from_end:
-            return text[-low:] if low else ""
-        return text[:low]
+        return self.token_counter.truncate_text(text, max_token, from_end=from_end)
 
     async def _calculate_relevance(self, context: str, query: str) -> float:
         """计算内容和查询问题的相关性,使用向量相似度计算"""
@@ -799,93 +817,3 @@ class ContextBuilder:
         delta = max(0.0, (now - timestamp).total_seconds())   # 未来时间按 0 处理
         half_life = 7 * 24 * 3600                       # 半衰期 7 天（可配置）
         return 0.5 ** (delta / half_life)
-
-    def _count_token(self, text: str):
-        """计算文本token数（使用tiktoken）"""
-        if not text:
-            return 0
-        if self._encoding is not None:
-            return len(self._encoding.encode(text))
-        # 无 tokenizer 时使用 UTF-8 字节保守估算，并保证短文本至少为 1 token。
-        return max(1, math.ceil(len(text.encode("utf-8")) / 4))
-
-    @staticmethod
-    def _load_encoding(model: str | None):
-        """加载与模型匹配的 tokenizer。
-
-        Qwen 模型使用 Transformers/ModelScope 提供的自定义 tokenizer，
-        其他模型继续优先使用 tiktoken。Qwen tokenizer 加载失败时返回
-        ``None``，让 ``_count_token`` 使用已有的保守估算，而不是误用
-        不匹配的 tiktoken 词表。
-        """
-        # 配置文件或复制粘贴内容可能带有非 ASCII 连字符，ModelScope
-        # 会将其作为模型名的一部分，最终请求不存在的仓库。
-        dash_map = {
-            ord(char): "-"
-            for char in "‐‑‒–—―−"
-        }
-        model_name = (model or "").strip().translate(dash_map)
-        model_key = model_name.lower()
-        is_qwen = model_key.startswith("qwen") or model_key.startswith("qwen/")
-
-        if is_qwen:
-            # API 模型名不一定是 Hub 路径；允许通过环境变量指定实际的
-            # tokenizer，也为常见的 Qwen embedding 别名提供默认映射。
-            tokenizer_name = os.getenv("QWEN_TOKENIZER_MODEL")
-            if tokenizer_name:
-                tokenizer_name = tokenizer_name.strip().translate(dash_map)
-            if not tokenizer_name:
-                tokenizer_name = (
-                    "Qwen/Qwen3-Embedding-0.6B"
-                    if "embedding" in model_key
-                    else model_name
-                )
-                if "/" not in tokenizer_name:
-                    tokenizer_name = f"Qwen/{tokenizer_name}"
-
-            tokenizer = None
-            try:
-                from modelscope import AutoTokenizer
-
-                tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-            except Exception:
-                tokenizer = None
-
-            if tokenizer is None:
-                try:
-                    from transformers import AutoTokenizer
-
-                    tokenizer = AutoTokenizer.from_pretrained(
-                        tokenizer_name,
-                        trust_remote_code=True,
-                    )
-                except Exception:
-                    return None
-
-            class QwenTokenWrapper:
-                def encode(self, text: str):
-                    try:
-                        return tokenizer.encode(
-                            text,
-                            add_special_tokens=False,
-                        )
-                    except TypeError:
-                        # 某些自定义 tokenizer 不接受该可选参数。
-                        return tokenizer.encode(text)
-
-                def decode(self, ids):
-                    return tokenizer.decode(ids)
-
-            return QwenTokenWrapper()
-
-        if tiktoken is None:
-            return None
-        if model_name:
-            try:
-                return tiktoken.encoding_for_model(model_name)
-            except Exception:
-                pass
-        try:
-            return tiktoken.get_encoding("cl100k_base")
-        except Exception:
-            return None

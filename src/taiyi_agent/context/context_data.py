@@ -1,7 +1,7 @@
 '''上下文数据结构'''
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Literal, Any
+from pydantic import BaseModel, Field, ConfigDict, model_validator
+from typing import Literal, Any, Self
 
 ConextItemType = Literal[
     "system",
@@ -97,7 +97,9 @@ class ContextConfig(BaseModel):
     参数:
         model_config： 模型实例化后数值修改需要校验
         max_tokens： Agent最大上下文窗口大小
-        reverse_tokens： Agent预留留上下文窗口大小
+        reserved_output_tokens： Agent预留留上下文窗口大小
+        compression_trigger_ratio： 调用前压缩的触发比例，相对于可用输入预算。
+        compression_target_ratio： 压缩后消息的目标比例，必须小于触发比例。
         max_history_messages： 上下文最多保留的历史Message个数
         memory_limit： 一次从长期记忆中最多召回的记忆个数
         history_keep_recent： 压缩历史时优先原样保留的最近消息数
@@ -112,13 +114,15 @@ class ContextConfig(BaseModel):
 
     # 上下文tokens限制
     max_tokens: int = Field(default=16384, gt=0)
-    reverse_tokens: int = Field(default=2048, ge=0)
+    reserved_output_tokens: int = Field(default=2048, ge=0)
+    compression_trigger_ratio: float = Field(default=0.8, gt=0.0, le=1.0)
+    compression_target_ratio: float = Field(default=0.6, gt=0.0, lt=1.0)
 
     # 历史和记忆限制
     max_history_messages: int = Field(default=50, ge=0)
     memory_limit: int = Field(default=5, ge=0)
     history_keep_recent: int = Field(default=6, ge=0)
-    history_summary_max_tokens: int = Field(default=512, gt=0)
+    history_summary_max_tokens: int = Field(default=1024, gt=0)
 
     # 上下文综合排序配置
     min_relevance: float = Field(default=0.2, ge=0.0, le=1.0)
@@ -129,20 +133,15 @@ class ContextConfig(BaseModel):
     enable_compression: bool = True
     enable_memory_retrieval: bool = True
 
+    @model_validator(mode="after")
+    def validate_budget(self) -> Self:
+        if self.reserved_output_tokens >= self.max_tokens:
+            raise ValueError("预留输出必须小于上下文总窗口")
+        if self.compression_target_ratio >= self.compression_trigger_ratio:
+            raise ValueError("压缩目标比例必须小于触发比例")
+        return self
 
+    @property
+    def input_limit(self) -> int:
+        return self.max_tokens - self.reserved_output_tokens
 
-
-# ContextItem(
-#     content="项目目前正在迁移 PostgreSQL。",
-#     item_type="memory",
-#     source="memory_store",
-#     source_id="memory-8f31",
-#     priority=2,
-#     relevance_score=0.86,
-#     token_count=12,
-#     metadata={
-#         "user_id": "user-001",
-#         "tags": ["project_state", "database"],
-#         "importance": 0.9,
-#     },
-# )

@@ -13,6 +13,8 @@ dependencies = [
   "numpy",
   "tiktoken",
   "qwen-tokenizer",
+  "modelscope",
+  "transformers"
 ]
 
 [tool.setuptools.packages.find]
