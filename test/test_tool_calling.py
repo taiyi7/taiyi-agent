@@ -1,17 +1,16 @@
-from typing import Any
 
-from taiyi_agent.agents.standard_agent import StandardAgent
-from taiyi_agent.core.tool_call import LLMResponse, ToolCall
+from taiyi_agent.agents.react_agent import ReactAgent
+from taiyi_agent.agents.agent_step import AgentStepExecutor
 from taiyi_agent.tool.tool_base import ToolParameter
-from taiyi_agent.tool.tool_calling import PromptToolCallingStrategy
+from taiyi_agent.tool.tool_calling import PromptToolCallingStrategy, ToolCallingStrategy, NativeToolCallingStrategy
 from taiyi_agent.tool.tool_registry import ToolRegistry
 from taiyi_agent.core.llm import TaiyiAgentLLM
-from taiyi_agent.context.context_manager import ContextManager
-from taiyi_agent.context.context_builder import ContextBuilder
-from taiyi_agent.context.context_data import ContextConfig
+from taiyi_agent.sessions.session import SessionState
 
+import asyncio
 
 llm = TaiyiAgentLLM()
+session = SessionState()
 
 def build_registry() -> ToolRegistry:
     registry = ToolRegistry()
@@ -30,38 +29,35 @@ def build_registry() -> ToolRegistry:
     return registry
 
 
-def test_native_tool_calling_executes_registered_tool() -> None:
-    agent = StandardAgent(
-        name="test",
+def build_react_agent(
+    calling_strategy : ToolCallingStrategy | None = None
+) -> ReactAgent:
+    agent_step = AgentStepExecutor(
         llm=llm,
-        context=ContextManager(
-            ContextBuilder(
-                config=ContextConfig(),
-                llm=llm,
-            ),
-        ),
-        system_prompt="你是天气助手。",
-        tool_registry=build_registry(),
+        tool_registry= build_registry(),
+        tool_calling_strategy=calling_strategy
     )
 
-    print(agent.run("广州今天天气如何"))
+    return ReactAgent(
+        step_executor=agent_step,
+        agent_system_prompt="你是天气助手。"
+    )
+
+def test_native_tool_calling_executes_registered_tool() -> None:
+    agent = build_react_agent()
+
+    result = asyncio.run(agent.run(session=session, user_input="广州今天天气如何"))
+    print("result1:", result)
 
 def test_prompt_tool_calling_executes_registered_tool() -> None:
-    agent = StandardAgent(
-        name="test",
-        llm=llm,
-        context=ContextManager(
-            ContextBuilder(
-                config=ContextConfig(),
-                llm=llm,
-            ),
-        ),
-        system_prompt="你是天气助手。",
-        tool_registry=build_registry(),
-        tool_calling_strategy=PromptToolCallingStrategy(),
-    )
+    agent = build_react_agent(PromptToolCallingStrategy())
 
-    print(agent.run("广州今天天气如何"))
+    result = asyncio.run(agent.run(session=session, user_input="广州今天天气如何"))
+    print("result2:", result)
 
 test_native_tool_calling_executes_registered_tool()
+print()
 test_prompt_tool_calling_executes_registered_tool()
+print()
+print("history:")
+print(session.history)

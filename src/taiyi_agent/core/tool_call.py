@@ -17,3 +17,10 @@ class LLMResponse(BaseModel):
 
     content: str = ""
     tool_calls: list[ToolCall] = Field(default_factory=list)
+
+
+class ToolExecution(BaseModel):
+    """一次工具调用及其结果。用于agent_step"""
+
+    call: ToolCall
+    result: str

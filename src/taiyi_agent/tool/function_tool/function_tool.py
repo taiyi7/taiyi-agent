@@ -20,3 +20,6 @@ class FunctionTool(BaseTool):
 
     def run(self, parameters: dict[str, Any]) -> str:
         return self.func(**parameters)
+
+    async def async_run(self, parameters: dict[str, Any]) -> str:
+        return self.func(**parameters)

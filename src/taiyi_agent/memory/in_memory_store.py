@@ -1,4 +1,5 @@
 '''Memory存储基本能力'''
+from copy import deepcopy
 from datetime import datetime, timezone
 from taiyi_agent.memory.memory_store import MemoryStore
 from taiyi_agent.memory.memory_record import MemoryRecord
@@ -15,10 +16,10 @@ class InMemoryStore(MemoryStore):
         return memory
 
     async def get(self, memory_id: str) -> MemoryRecord | None:
-        return self._data[memory_id]
+        return deepcopy(self._data.get(memory_id))
 
     async def get_all(self) -> dict[MemoryRecord] | None:
-        return self._data
+        return deepcopy(self._data)
 
     async def search(self, user_id: str, query: str, limit: int=5) -> list[MemoryRecord]:
         keywords = set(query.lower().split())
