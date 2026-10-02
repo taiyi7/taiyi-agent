@@ -35,13 +35,13 @@ class SimpleAgent(BaseAgent):
         messages = self._build_messages(input)
 
         # 调用大模型进行思考
-        response = self.llm.invoke(messages).content
+        response = self.llm.invoke(messages)
 
         # 保存到历史记录，包含客户问题，以及大模型回答
-        self.history.add_history(Message("user", input))
-        self.history.add_history(Message("assistant", response))
+        self.history.add_history(Message(role="user", content=input))
+        self.history.add_history(Message(role="assistant", content=response.content))
 
-        return response
+        return response.content
 
 
     # 流式输出的run功能
@@ -63,15 +63,15 @@ class SimpleAgent(BaseAgent):
             yield chunk                             # 创建生成器，正常外部不会执行遍历，只有外部使用驱动生成器的时候才会遍历
 
         # 保存到历史记录，包含客户问题，以及大模型回答
-        self.history.add_history(Message("user", input))
-        self.history.add_history(Message("assistant", full_output))
+        self.history.add_history(Message(role="user", content=input))
+        self.history.add_history(Message(role="assistant", content=response.content))
 
     async def async_run(self, input: str, **kwargs) -> str:
         '''异步非流式输出'''
         messages = self._build_messages(input)
         response = await self.llm.ainvoke(messages)
-        self.history.add_history(Message("user", input))
-        self.history.add_history(Message("assistant", response.content))
+        self.history.add_history(Message(role="user", content=input))
+        self.history.add_history(Message(role="assistant", content=response.content))
         return response.content
     
     def _build_messages(self, input: str) -> List[Dict[str, Any]]:

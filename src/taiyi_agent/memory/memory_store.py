@@ -8,7 +8,7 @@ class MemoryStore(ABC):
         ...
 
     @ abstractmethod
-    async def get(self, memory: MemoryRecord) -> MemoryRecord | None:
+    async def get(self, memory_id: str) -> MemoryRecord | None:
         ...
 
     @ abstractmethod

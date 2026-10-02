@@ -1,6 +1,7 @@
 import os
 from typing import Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from taiyi_agent.context.context_data import ContextConfig
 
 class Config(BaseModel):
     '''
@@ -17,6 +18,8 @@ class Config(BaseModel):
 
     # 其他配置
     max_history_length: int = 100
+
+    context: ContextConfig = Field(default_factory=ContextConfig)
 
     @classmethod
     def from_env(cls) -> "Config":
