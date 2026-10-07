@@ -1,5 +1,6 @@
 # history.py
 from taiyi_agent.core.message import Message
+from copy import deepcopy
 
 class History:
     def __init__(self):
@@ -7,7 +8,7 @@ class History:
 
     def get_history(self):
         '''获取历史记录'''
-        return self._history.copy()
+        return deepcopy(self._history)
     
     def add_history(self, message:Message):
         '''将消息添加到历史'''

@@ -43,7 +43,18 @@ async def main():
         await llm.async_client.close()
         llm.client.close()
 
+def test_model():
+    message1 = [{"role": "user", "content": "我是太乙真人，请记住"}]
+    ret1 = llm.invoke(message1)
+    print("ret1", ret1)
+
+    print()
+    message2 = [{"role": "user", "content": "我是谁？"}]
+    ret2 = llm.invoke(message2)
+    print("ret2:", ret2)
+
 if __name__ == "__main__":
     test_stream()
     test_invoke()
     asyncio.run(main())
+    test_model()

@@ -11,6 +11,7 @@ from taiyi_agent.agents.standard_agent import StandardAgent
 from taiyi_agent.context.context_builder import ContextBuilder
 from taiyi_agent.context.context_data import ContextConfig, ContextItem
 from taiyi_agent.context.context_assembler import ContextAssembler
+from taiyi_agent.context.token_counter import TokenCounter
 from taiyi_agent.core.llm import TaiyiAgentLLM
 from taiyi_agent.tool.tool_base import ToolParameter
 from taiyi_agent.tool.tool_calling import PromptToolCallingStrategy
@@ -42,6 +43,7 @@ def _has_llm_configuration() -> bool:
 #             max_history_messages=20,
 #         ),
 #         llm=llm,
+#         token_counter=TokenCounter(),
 #     )
 
 
@@ -50,6 +52,7 @@ def _has_llm_configuration() -> bool:
 #     return ContextManager(builder=builder)
 
 llm = TaiyiAgentLLM()
+token_counter = TokenCounter()
 builder = ContextBuilder(
     config=ContextConfig(
         max_tokens=4096,
@@ -57,6 +60,7 @@ builder = ContextBuilder(
         max_history_messages=20,
     ),
     llm=llm,
+    counter=token_counter,
 )
 
 context = ContextAssembler(builder=builder)

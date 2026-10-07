@@ -22,18 +22,30 @@ class BaseTool(ABC):
     @abstractmethod
     def get_parameters(self) -> list[ToolParameter]:
         '''获取工具参数'''
-        pass
+        ...
 
-    @abstractmethod
     def run(self, parameters: dict[str, Any]) -> str:
-        '''工具执行'''
-        pass
+        '''
+        同步工具可以覆盖此方法。
+        纯异步工具只需要覆盖 arun。
+        '''
+        raise NotImplementedError(
+            f"工具 {self.name} 没有同步执行实现，请调用 arun()"
+        )
 
     async def arun(self, parameters: dict[str, Any]) -> str:
+        """
+        统一的异步执行入口。
+        同步工具放到线程池，避免阻塞事件循环。
+        """
+        if type(self).run is BaseTool.run:
+            raise NotImplementedError(f"工具 {self.name} 必须实现 run() 或 arun()")
+
         result = await asyncio.to_thread(self.run, parameters)
         if inspect.isawaitable(result):
             result = await result
         return str(result)
+
 
     def to_openai_schema(self) -> dict[str, Any]:
         '''
@@ -77,13 +89,3 @@ class BaseTool(ABC):
                 }
             }
         }
-
-# {
-#   "type": "object",      # JSON Schema 基础类型，代表：这一组参数是一个 JSON 对象（字典）
-#   "properties": {
-#     "city": {"type": "string", "description": "城市名称"},
-#     "unit": {"type": "string", "description": "温度单位"}
-#   },
-#   "required": ["city"]   #这个参数是否是必须提供的
-# }
-    

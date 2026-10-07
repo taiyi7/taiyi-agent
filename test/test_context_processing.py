@@ -11,6 +11,7 @@ from typing import Any
 
 from taiyi_agent.context.context_builder import ContextBuilder
 from taiyi_agent.context.context_data import ContextConfig, ContextItem, ContextSection
+from taiyi_agent.context.token_counter import TokenCounter
 from taiyi_agent.core.message import Message
 from taiyi_agent.core.tool_call import LLMResponse, ToolCall
 from taiyi_agent.tool.tool_base import ToolParameter
@@ -44,6 +45,24 @@ class RecordingTaiyiAgentLLM():
         return self.responses.pop(0)
 
 
+def make_builder(
+    *,
+    config: ContextConfig | None = None,
+    llm: RecordingTaiyiAgentLLM | None = None,
+) -> ContextBuilder:
+    """为每个测试显式提供 ContextConfig、TokenCounter 和 LLM。"""
+    config = config if config is not None else ContextConfig(
+        max_tokens=256,
+        reserved_output_tokens=0,
+    )
+    llm = llm if llm is not None else RecordingTaiyiAgentLLM()
+    return ContextBuilder(
+        config=config,
+        llm=llm,
+        counter=TokenCounter(encoding=CharacterEncoding()),
+    )
+
+
 def run_build(builder: ContextBuilder, **kwargs: Any) -> str:
     return asyncio.run(builder.build(**kwargs))
 
@@ -51,7 +70,7 @@ def run_build(builder: ContextBuilder, **kwargs: Any) -> str:
 def test_context_builder_initialization_and_first_context() -> None:
     config = ContextConfig(max_tokens=256, reserved_output_tokens=0)
     llm = RecordingTaiyiAgentLLM()
-    builder = ContextBuilder(config=config, llm=llm)
+    builder = make_builder(config=config, llm=llm)
 
     rendered = run_build(
         builder,
@@ -67,16 +86,13 @@ def test_context_builder_initialization_and_first_context() -> None:
 
 
 def test_tool_result_is_added_to_context() -> None:
-    builder = ContextBuilder(
-        config=ContextConfig(max_tokens=256, reserved_output_tokens=0),
-        llm=RecordingTaiyiAgentLLM(),
-    )
+    builder = make_builder()
     tool_result = "广州当前 28 摄氏度，晴。"
     item = ContextItem(
         content=tool_result,
         item_type="tool",
         relevance_score=1.0,
-        token_count=builder.token_counter.count_text(tool_result),
+        token_count=builder.counter.count_text(tool_result),
         timestamp=datetime.now(timezone.utc),
     )
 
@@ -91,10 +107,7 @@ def test_tool_result_is_added_to_context() -> None:
 
 # 测试较长上下文的压缩
 def test_long_context_is_compressed_without_mutating_sections() -> None:
-    builder = ContextBuilder(
-        config=ContextConfig(max_tokens=256, reserved_output_tokens=0),
-        llm=RecordingTaiyiAgentLLM(),
-    )
+    builder = make_builder()
     sections = [
         ContextSection(
             section_type="task",
@@ -114,14 +127,14 @@ def test_long_context_is_compressed_without_mutating_sections() -> None:
 
     rendered = asyncio.run(builder._compress(sections, max_token=30))
 
-    assert builder.token_counter.count_text(rendered) <= 30
+    assert builder.counter.count_text(rendered) <= 30
     assert "[Task]" in rendered
     assert sections[1].items == original_items
 
 
 # 测试： 压缩时优先删除低优先级的section
 def test_compress_removes_low_priority_optional_section_first() -> None:
-    builder = ContextBuilder(llm=RecordingTaiyiAgentLLM())
+    builder = make_builder()
     required = ContextSection(
         section_type="task",
         title="[Task]",
@@ -141,7 +154,7 @@ def test_compress_removes_low_priority_optional_section_first() -> None:
         items=["可选输出 " * 100],
         priority=20,
     )
-    budget = builder.token_counter.count_text(
+    budget = builder.counter.count_text(
         builder._format_all_sections([required, evidence])
     )
 
@@ -150,7 +163,7 @@ def test_compress_removes_low_priority_optional_section_first() -> None:
         max_token=budget,
     ))
 
-    assert builder.token_counter.count_text(rendered) <= budget
+    assert builder.counter.count_text(rendered) <= budget
     assert "重要证据：部署必须先检查配置。" in rendered
     assert "[Output]" not in rendered
 
@@ -159,7 +172,7 @@ def test_history_compression_uses_llm_summary_and_keeps_recent_message() -> None
     llm = RecordingTaiyiAgentLLM([
         LLMResponse(content="旧消息摘要：已确认发布流程。"),
     ])
-    builder = ContextBuilder(
+    builder = make_builder(
         config=ContextConfig(
             max_tokens=256,
             reserved_output_tokens=0,
@@ -190,7 +203,7 @@ def test_history_compression_uses_llm_summary_and_keeps_recent_message() -> None
 # 测试：llm压缩失败后的处理
 def test_history_compression_falls_back_to_recent_messages_when_llm_fails() -> None:
     llm = RecordingTaiyiAgentLLM()
-    builder = ContextBuilder(
+    builder = make_builder(
         config=ContextConfig(
             max_tokens=256,
             reserved_output_tokens=0,
@@ -211,14 +224,14 @@ def test_history_compression_falls_back_to_recent_messages_when_llm_fails() -> N
 
     rendered = asyncio.run(builder._compress([history], max_token=24))
 
-    assert builder.token_counter.count_text(rendered) <= 24
+    assert builder.counter.count_text(rendered) <= 24
     assert "最新消息：请开始执行。" in rendered
     assert "[Earlier Conversation Summary]" in rendered
     assert len(llm.calls) == 1
 
 # 测试：压缩保留头和尾内容
 def test_task_compression_preserves_head_and_tail() -> None:
-    builder = ContextBuilder(llm=RecordingTaiyiAgentLLM())
+    builder = make_builder()
     task = ContextSection(
         section_type="task",
         title="[Task]",
@@ -230,14 +243,14 @@ def test_task_compression_preserves_head_and_tail() -> None:
     asyncio.run(builder._compress_section(task, max_token=30))
     compressed = task.items[0]
 
-    assert builder.token_counter.count_text(compressed) <= 30
+    assert builder.counter.count_text(compressed) <= 30
     assert "START" in compressed
     assert "END" in compressed
     assert "...[middle omitted]..." in compressed
 
 # 测试：极限场景下，保留requied sections的标题
 def test_required_sections_are_fitted_when_optional_sections_are_gone() -> None:
-    builder = ContextBuilder(llm=RecordingTaiyiAgentLLM())
+    builder = make_builder()
     sections = [
         ContextSection(
             section_type="role_policies",
@@ -255,20 +268,17 @@ def test_required_sections_are_fitted_when_optional_sections_are_gone() -> None:
         ),
     ]
     headers = [section.model_copy(update={"items": []}) for section in sections]
-    header_budget = builder.token_counter.count_text(builder._format_all_sections(headers)) + 4
+    header_budget = builder.counter.count_text(builder._format_all_sections(headers)) + 4
 
     rendered = asyncio.run(builder._compress(sections, max_token=header_budget))
 
-    assert builder.token_counter.count_text(rendered) <= header_budget
+    assert builder.counter.count_text(rendered) <= header_budget
     assert "[Role & Policies]" in rendered
     assert "[Task]" in rendered
 
 # 测试：多次build的时候，上下文内容历史更新
 def test_context_contains_history_on_each_build() -> None:
-    builder = ContextBuilder(
-        config=ContextConfig(max_tokens=256, reserved_output_tokens=0),
-        llm=RecordingTaiyiAgentLLM(),
-    )
+    builder = make_builder()
     first_history = [Message(role="user", content="我负责发布服务。")]
     second_history = first_history + [
         Message(role="assistant", content="收到，我会记住这个背景。")
