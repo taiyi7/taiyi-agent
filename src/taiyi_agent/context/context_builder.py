@@ -22,18 +22,15 @@ class ContextBuilder:
         self,
         # memory_tool: MemoryTool | None = None,
         # rag_tool: RAGTool | None = None,
-        config: ContextConfig | None = None,
-        llm: TaiyiAgentLLM | None = None,
-        tokenizer_model: str | None = None,
-        token_counter: TokenCounter | None = None,
+        config: ContextConfig,
+        llm: TaiyiAgentLLM,
+        counter: TokenCounter,
     ):
         # self.memory_tool = memory_tool
         # self.rag_tool = rag_tool
-        self.config = config or ContextConfig()
+        self.config = config
         self.llm = llm
-
-        tokenizer_model = tokenizer_model or os.getenv("QWEN_TOKENIZER_MODEL")
-        self.token_counter = (token_counter or TokenCounter(tokenizer_model=tokenizer_model))
+        self.counter = counter
 
     async def build(
         self,
@@ -125,7 +122,7 @@ class ContextBuilder:
 
         return BuiltContext(
             messages=messages,
-            token_count=self.token_counter.count_messages(messages),
+            token_count=self.counter.count_messages(messages),
             selected_items=selected,
             metadata={
                 "section_count": len(sections),
@@ -185,7 +182,7 @@ class ContextBuilder:
                 content=system_instructions,
                 item_type="system",
                 relevance_score=1.0,   # 系统指令相关性为1.0
-                token_count=self.token_counter.count_text(system_instructions),
+                token_count=self.counter.count_text(system_instructions),
             ))
 
         # 1、 从记忆中获取任务状态与关键结论
@@ -209,7 +206,7 @@ class ContextBuilder:
                     item_type="history",
                     timestamp=msg.timestamp,
                     relevance_score=0.6,   # 历史对话相关性为0.6
-                    token_count=self.token_counter.count_text(rendered_message),
+                    token_count=self.counter.count_text(rendered_message),
                 ))
 
         # 4、 添加额外上下文
@@ -444,7 +441,7 @@ class ContextBuilder:
         summary_header = "[Earlier Conversation Summary]\n"
         can_summarize = (
             len(messages) > 1
-            and max_token > self.token_counter.count_text(summary_header)
+            and max_token > self.counter.count_text(summary_header)
         )
         summary_reserve = (
             min(self.config.history_summary_max_tokens, max_token // 3)
@@ -465,8 +462,8 @@ class ContextBuilder:
                 self.config.history_summary_max_tokens,
                 max(
                     max_token
-                    - self.token_counter.count_text("\n".join(recent_messages))
-                    - self.token_counter.count_text(summary_header),
+                    - self.counter.count_text("\n".join(recent_messages))
+                    - self.counter.count_text(summary_header),
                     0,
                 ),
             )
@@ -525,15 +522,15 @@ class ContextBuilder:
                     }
                 ]
                 # 超长工具结果也可能撑满摘要请求；摘要输入同样受总预算约束。
-                body_budget = self.config.input_limit - self.token_counter.count_messages([
+                body_budget = self.config.input_limit - self.counter.count_messages([
                     llm_messages[0], {"role": "user", "content": ""},
                 ])
                 if body_budget <= 0:
                     raise ValueError("输入预算不足以容纳摘要提示词")
-                while self.token_counter.count_messages(llm_messages) > self.config.input_limit:
+                while self.counter.count_messages(llm_messages) > self.config.input_limit:
                     content = llm_messages[1]["content"]
                     llm_messages[1]["content"] = self._head_tail_truncate(content, body_budget)
-                    overflow = self.token_counter.count_messages(llm_messages) - self.config.input_limit
+                    overflow = self.counter.count_messages(llm_messages) - self.config.input_limit
                     body_budget = max(body_budget - max(overflow, 1), 0)
                 response = await self.llm.ainvoke(
                     messages=llm_messages,
@@ -580,7 +577,7 @@ class ContextBuilder:
         selected: list[str] = []
         for message in reversed(messages):
             candidate = [message] + selected
-            if self.token_counter.count_text("\n".join(candidate)) <= max_token:
+            if self.counter.count_text("\n".join(candidate)) <= max_token:
                 selected = candidate
                 continue
 
@@ -595,11 +592,11 @@ class ContextBuilder:
         """滑动窗口截断：优先保留开头和结尾，中间内容被省略。"""
         if max_token <= 0:
             return ""
-        if self.token_counter.count_text(text) <= max_token:
+        if self.counter.count_text(text) <= max_token:
             return text
 
         marker = "\n...[middle omitted]...\n"
-        marker_count = self.token_counter.count_text(marker)
+        marker_count = self.counter.count_text(marker)
         if max_token <= marker_count + 1:
             return self._truncate_text(text, max_token, from_end=True)
 
@@ -609,15 +606,15 @@ class ContextBuilder:
         tail_budget = content_budget - head_budget
 
         # 优先使用编码器编码处理，只保留头和尾巴内容
-        if self.token_counter._encoding is not None:
-            tokens = self.token_counter._encoding.encode(text)
-            marker_tokens = self.token_counter._encoding.encode(marker)
+        if self.counter._encoding is not None:
+            tokens = self.counter._encoding.encode(text)
+            marker_tokens = self.counter._encoding.encode(marker)
             combined = (
                 tokens[:head_budget]
                 + marker_tokens
                 + (tokens[-tail_budget:] if tail_budget else [])
             )
-            return self.token_counter._encoding.decode(combined)
+            return self.counter._encoding.decode(combined)
 
         head_chars = head_budget * 4
         tail_chars = tail_budget * 4
@@ -634,7 +631,7 @@ class ContextBuilder:
             return
 
         body = "\n".join(section.items)
-        if self.token_counter.count_text(body) <= max_token:
+        if self.counter.count_text(body) <= max_token:
             return
 
         if section.section_type == "history":
@@ -679,21 +676,21 @@ class ContextBuilder:
         headers_only = [deepcopy(section) for section in required]
         for section in headers_only:
             section.items = []
-        overhead = self.token_counter.count_text(self._format_all_sections(headers_only))
+        overhead = self.counter.count_text(self._format_all_sections(headers_only))
 
         # 2、只保留标题的情况下依旧超预算，需要进一步降级处理，只保留task部分
         if overhead > max_token:
-            if self.token_counter.count_text(task.title) > max_token:
+            if self.counter.count_text(task.title) > max_token:
                 return ""
 
             task_only = deepcopy(task)
             body_budget = max(
-                max_token - self.token_counter.count_text(task.title + "\n"),
+                max_token - self.counter.count_text(task.title + "\n"),
                 0,
             )
             await self._compress_section(task_only, body_budget)
             formatted = self._format_single_section(task_only)
-            if self.token_counter.count_text(formatted) <= max_token:
+            if self.counter.count_text(formatted) <= max_token:
                 return formatted
             return task.title
 
@@ -760,14 +757,14 @@ class ContextBuilder:
         return "\n\n".join(self._format_single_section(section) for section in sections)
 
     def _get_section_body_tokens(self, section: ContextSection) -> int:
-        return self.token_counter.count_text("\n".join(section.items))
+        return self.counter.count_text("\n".join(section.items))
 
     def _formatted_with_tokens(
         self,
         sections: list[ContextSection],
     ) -> tuple[str, int]:
         formatted = self._format_all_sections(sections)
-        return formatted, self.token_counter.count_text(formatted)
+        return formatted, self.counter.count_text(formatted)
 
     def _truncate_text(
         self,
@@ -776,7 +773,7 @@ class ContextBuilder:
         *,
         from_end: bool = False,
     ) -> str:
-        return self.token_counter.truncate_text(text, max_token, from_end=from_end)
+        return self.counter.truncate_text(text, max_token, from_end=from_end)
 
     async def _calculate_relevance(self, context: str, query: str) -> float:
         """计算内容和查询问题的相关性,使用向量相似度计算"""

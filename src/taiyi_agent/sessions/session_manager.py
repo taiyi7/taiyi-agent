@@ -45,7 +45,7 @@ class SessionManager:
         self.tool_calling_strategy = tool_calling_strategy
 
         self._session_locks: defaultdict[
-            str,
+            UUID,
             asyncio.Lock,
         ] = defaultdict(asyncio.Lock)
 

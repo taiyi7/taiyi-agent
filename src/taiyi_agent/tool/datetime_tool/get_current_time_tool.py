@@ -22,7 +22,7 @@ class GetCurrentTimeTool(BaseTool):
                 default="Asia/Shanghai"
             )
         ]
-    
+
     def run(self, parameters: dict[str, Any]) -> str:
         '''执行工具获取当前时间'''
         timezone = parameters.get("timezone", "Asia/Shanghai")
