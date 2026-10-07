@@ -93,14 +93,18 @@ def empty_session() -> SessionState:
 
 
 @pytest.fixture
-def context_builder(token_counter: TokenCounter) -> ContextBuilder:
+def context_builder(
+    token_counter: TokenCounter,
+    mock_llm: Mock,
+) -> ContextBuilder:
     return ContextBuilder(
         config=ContextConfig(
             max_tokens=256,
             reserved_output_tokens=0,
             max_history_messages=3,
         ),
-        token_counter=token_counter,
+        llm=mock_llm,
+        counter=token_counter,
     )
 
 
@@ -399,7 +403,7 @@ async def test_context_token_budget_compresses_optional_sections(
         max_token=60,
     )
 
-    assert context_builder.token_counter.count_text(compressed) <= 60
+    assert context_builder.counter.count_text(compressed) <= 60
     assert "[Task]" in compressed
 
 

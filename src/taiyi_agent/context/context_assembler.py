@@ -15,10 +15,14 @@ class ContextAssembler:
     SUMMARY_NAME = "context_summary"
     DEFAULT_SYSTEM_PROMPT = "你是一个 AI 助手。"
 
-    def __init__(self, builder: ContextBuilder, token_window: TokenWindow) -> None:
+    def __init__(
+        self,
+        builder: ContextBuilder,
+        token_window: TokenWindow,
+    ) -> None:
         if builder.config is not token_window.config:
             raise ValueError("Builder 和 TokenWindow 必须共享 ContextConfig")
-        if builder.token_counter is not token_window.counter:
+        if builder.counter is not token_window.counter:
             raise ValueError("Builder 和 TokenWindow 必须共享 TokenCounter")
 
         self.builder = builder

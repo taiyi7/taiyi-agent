@@ -14,7 +14,9 @@ dependencies = [
   "tiktoken",
   "qwen-tokenizer",
   "modelscope",
-  "transformers"
+  "transformers",
+  "fastapi[standard]>=0.142.2",
+  "uvicorn",
 ]
 
 [tool.setuptools.packages.find]

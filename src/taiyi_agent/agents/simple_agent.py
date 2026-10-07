@@ -64,7 +64,7 @@ class SimpleAgent(BaseAgent):
 
         # 保存到历史记录，包含客户问题，以及大模型回答
         self.history.add_history(Message(role="user", content=input))
-        self.history.add_history(Message(role="assistant", content=response.content))
+        self.history.add_history(Message(role="assistant", content=full_output))
 
     async def async_run(self, input: str, **kwargs) -> str:
         '''异步非流式输出'''

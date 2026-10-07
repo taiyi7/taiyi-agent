@@ -38,11 +38,12 @@ class SummaryLLM:
 
 
 def make_assembler(llm=None, *, max_tokens=10000, reserved_output_tokens=2000):
+    llm = SummaryLLM() if llm is None else llm
     config = ContextConfig(
         max_tokens=max_tokens, reserved_output_tokens=reserved_output_tokens,
     )
     counter = TokenCounter(encoding=CharacterEncoding())
-    builder = ContextBuilder(config=config, llm=llm, token_counter=counter)
+    builder = ContextBuilder(config=config, llm=llm, counter=counter)
     return ContextAssembler(builder, TokenWindow(config, counter))
 
 

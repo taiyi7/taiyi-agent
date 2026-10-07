@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f8fc" />
+    <title>太乙 Agent · 智能工作台</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="sidebar" aria-label="会话列表">
+        <div class="brand-row">
+          <div class="brand-mark" aria-hidden="true">✦</div>
+          <div>
+            <div class="brand-name">太乙 Agent</div>
+            <div class="brand-caption">智能工作台</div>
+          </div>
+          <button class="icon-button mobile-only" id="close-sidebar" aria-label="关闭会话列表">×</button>
+        </div>
+
+        <button class="new-chat-button" id="new-chat" type="button">
+          <span class="plus-icon" aria-hidden="true">＋</span>
+          <span>新建对话</span>
+          <kbd>⌘ K</kbd>
+        </button>
+
+        <div class="session-heading">
+          <span>我的对话</span>
+          <span class="session-count" id="session-count">0</span>
+        </div>
+        <div class="session-list" id="session-list" role="list"></div>
+
+        <div class="sidebar-footer">
+          <div class="connection-status"><span class="status-dot" id="status-dot"></span><span id="status-label">正在连接</span></div>
+          <div class="api-hint">Taiyi Agent API</div>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <header class="topbar">
+          <button class="icon-button mobile-only" id="open-sidebar" aria-label="打开会话列表">☰</button>
+          <div class="conversation-title-wrap">
+            <span class="eyebrow">当前会话</span>
+            <h1 id="conversation-title">新对话</h1>
+          </div>
+          <div class="topbar-actions">
+            <button class="toolbar-button" id="rename-current" type="button" title="重命名当前会话">
+              <span aria-hidden="true">✎</span><span class="desktop-label">重命名</span>
+            </button>
+            <button class="toolbar-button danger" id="delete-current" type="button" title="删除当前会话">
+              <span aria-hidden="true">⌫</span><span class="desktop-label">删除</span>
+            </button>
+          </div>
+        </header>
+
+        <section class="chat-stage" aria-label="对话内容">
+          <div class="welcome-card" id="welcome-card">
+            <div class="welcome-icon">✦</div>
+            <h2>你好，我是太乙 Agent</h2>
+            <p>我可以帮你拆解任务、查询信息，并把复杂问题变成可执行的步骤。</p>
+            <div class="suggestion-row">
+              <button class="suggestion" type="button" data-prompt="请介绍一下你能做什么">介绍一下你的能力 <span>→</span></button>
+              <button class="suggestion" type="button" data-prompt="帮我制定一个学习计划">制定一个学习计划 <span>→</span></button>
+            </div>
+          </div>
+          <div class="messages" id="messages" aria-live="polite"></div>
+          <div class="typing-row hidden" id="typing-row">
+            <div class="avatar agent-avatar">✦</div>
+            <div class="typing-bubble"><span></span><span></span><span></span><em>Agent 正在思考</em></div>
+          </div>
+        </section>
+
+        <div class="composer-area">
+          <form class="composer" id="composer">
+            <textarea id="message-input" rows="1" placeholder="输入消息，按 Enter 发送 · Shift + Enter 换行" aria-label="消息内容"></textarea>
+            <div class="composer-footer">
+              <span class="composer-tip"><span class="sparkle">✦</span> 连续对话已开启</span>
+              <button class="send-button" id="send-button" type="submit" aria-label="发送消息"><span>发送</span><span class="send-arrow">↑</span></button>
+            </div>
+          </form>
+          <p class="privacy-note">Agent 的回答可能存在偏差，请结合实际情况判断</p>
+        </div>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="modal-backdrop hidden" id="rename-modal" role="presentation">
+      <form class="rename-modal" id="rename-form" role="dialog" aria-modal="true" aria-labelledby="rename-heading">
+        <button class="modal-close" id="close-rename" type="button" aria-label="关闭">×</button>
+        <div class="modal-icon">✎</div>
+        <h2 id="rename-heading">重命名对话</h2>
+        <p>给这段对话取一个容易找到的名字。</p>
+        <label for="rename-input">对话名称</label>
+        <input id="rename-input" maxlength="80" autocomplete="off" />
+        <div class="modal-actions"><button class="secondary-button" id="cancel-rename" type="button">取消</button><button class="primary-button" type="submit">保存名称</button></div>
+      </form>
+    </div>
+    <script>
+      // 可在部署时通过 window.APP_CONFIG = { API_BASE: 'https://...' } 配置 API 地址。
+      window.APP_CONFIG = window.APP_CONFIG || { API_BASE: 'http://127.0.0.1:8000' };
+    </script>
+    <script src="./app.js" defer></script>
+  </body>
+</html>

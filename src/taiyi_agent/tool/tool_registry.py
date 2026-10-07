@@ -28,7 +28,7 @@ class ToolRegistry:
         self,
         name:str,
         description: str,
-        func: Callable[..., str],
+        func: Callable[..., Any],
         parameters: list[ToolParameter]
     ):
         '''
@@ -109,6 +109,8 @@ class ToolRegistry:
                 return await tool.arun(parameters)
         except TimeoutError:
             return f"Error: 工具{name}执行超时"
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
             return f"Error：执行工具{name}时报错：{str(exc)}"
 
