@@ -1,6 +1,6 @@
 from taiyi_agent.tool.tool_registry import ToolRegistry
 from taiyi_agent.tool.tool_base import ToolParameter
-from taiyi_agent.tool.datetime_tool.get_current_time_tool import GetCurrentTimeTool
+from taiyi_agent.tool.builtin_tool.get_current_time_tool import GetCurrentTimeTool
 import asyncio
 
 tool_registry = ToolRegistry()

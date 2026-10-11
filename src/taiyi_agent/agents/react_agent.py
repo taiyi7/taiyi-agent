@@ -31,8 +31,8 @@ class ReactAgent:
         self,
         step_executor: AgentStepExecutor,
         context_assembler: ContextAssembler,
+        max_steps: int,
         agent_system_prompt: str | None = None,
-        max_steps: int = 6,
     ) -> None:
         self.step_executor = step_executor
         self.context_assembler = context_assembler
@@ -57,7 +57,7 @@ class ReactAgent:
         if session.active_turn:
             raise RuntimeError(f"Session {session.session_id} 已经存在运行中的 turn")
 
-        step_limit = max_steps or self.max_steps
+        step_limit = max_steps if max_steps is not None else self.max_steps
 
         session.begin_turn(user_input)
 
@@ -102,17 +102,19 @@ class ReactAgent:
 
                     return final_content
 
-            error_message = (
-                f"Error: ReAct 迭代次数超过限制 "
-                f"({step_limit})"
+            final_content = await self.step_executor.finalize(
+                working_messages
             )
 
-            session.complete_turn(assistant_output=error_message,)
+            if not final_content:
+                final_content = "根据当前已获得的信息，暂时无法生成完整答案。"
+
+            session.complete_turn(assistant_output=final_content,)
 
             if checkpoint is not None:
                 await checkpoint(session)
 
-            return error_message
+            return final_content
 
         except Exception as exc:
             session.abort_turn(error=str(exc))

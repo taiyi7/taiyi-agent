@@ -113,7 +113,7 @@ class ContextConfig(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
     # 上下文tokens限制
-    max_tokens: int = Field(default=16384, gt=0)
+    model_context_window: int = Field(default=16384, gt=0)
     reserved_output_tokens: int = Field(default=2048, ge=0)
     compression_trigger_ratio: float = Field(default=0.8, gt=0.0, le=1.0)
     compression_target_ratio: float = Field(default=0.6, gt=0.0, lt=1.0)
@@ -135,13 +135,13 @@ class ContextConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_budget(self) -> Self:
-        if self.reserved_output_tokens >= self.max_tokens:
+        if self.reserved_output_tokens >= self.model_context_window:
             raise ValueError("预留输出必须小于上下文总窗口")
         if self.compression_target_ratio >= self.compression_trigger_ratio:
             raise ValueError("压缩目标比例必须小于触发比例")
         return self
 
     @property
-    def input_limit(self) -> int:
-        return self.max_tokens - self.reserved_output_tokens
+    def input_token_budget(self) -> int:
+        return self.model_context_window - self.reserved_output_tokens
 

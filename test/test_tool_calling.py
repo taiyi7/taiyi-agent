@@ -40,6 +40,7 @@ def build_react_agent(
 
     return ReactAgent(
         step_executor=agent_step,
+        max_steps=6,
         agent_system_prompt="你是天气助手。"
     )
 

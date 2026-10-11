@@ -295,13 +295,13 @@ reserved_output_tokens 用于计算输入预算，当前 LLM 请求并未据此�
 | 文件/目录 | 职责 |
 | --- | --- |
 | tool_base.py | ToolParameter 描述参数；BaseTool 定义工具接口及 schema，arun 兼容同步 run，纯异步工具可直接覆盖 arun |
-| function_tool/function_tool.py | FunctionTool 包装注册函数，识别普通异步函数并 await；同步函数在线程池中执行 |
+| function_tool.py | FunctionTool 包装注册函数，识别普通异步函数并 await；同步函数在线程池中执行 |
 | tool_registry.py | 注册工具对象或函数，生成工具描述及 OpenAI schema；aexecute_tool 提供统一异步执行入口、超时和错误反馈 |
 | tool_calling.py | NativeToolCallingStrategy 使用模型原生 tools；PromptToolCallingStrategy 使用提示词和 JSON 约定；两者都负责追加工具结果 |
-| datetime_tool/get_current_time_tool.py | GetCurrentTimeTool 查询指定时区时间，通过同步 run 与基类异步适配执行 |
-| search_tool/tavily_search.py | TavilySearchTool 使用 AsyncTavilyClient 搜索并整理结果 |
-| search_tool/web_search_tool.py | SerpSearchTool 使用 httpx 异步请求 SerpAPI，提取答案和搜索摘要 |
-| search_tool/weather_tool.py | WeatherTool 查询城市 ID，再查询实时天气或预报；当前对外参数使用 now、3d、7d |
+| builtin_tool/get_current_time_tool.py | GetCurrentTimeTool 查询指定时区时间，通过同步 run 与基类异步适配执行 |
+| builtin_tool/search_tool/web_search_tool.py | TavilySearchTool 使用 AsyncTavilyClient 搜索并整理结果 |
+| builtin_tool/search_tool/web_search_tool.py | SerpSearchTool 使用 httpx 异步请求 SerpAPI，提取答案和搜索摘要 |
+| builtin_tool/search_tool/weather_tool.py | WeatherTool 查询城市 ID，再查询实时天气或预报；当前对外参数使用 now、3d、7d |
 
 命令行与 FastAPI 入口当前都注册时间、Tavily、SerpAPI 和天气四个工具。工具选择由模型响应驱动；Tavily 优先、SerpAPI 兜底是工具描述中的建议，并非代码强制执行的回退链。
 

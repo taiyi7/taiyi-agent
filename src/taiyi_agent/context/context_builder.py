@@ -44,7 +44,7 @@ class ContextBuilder:
 
         输出结构为 str
         """
-        available_tokens = self.config.input_limit
+        available_tokens = self.config.input_token_budget
             
         items = self._gather(
             conversation_history or [],
@@ -71,7 +71,7 @@ class ContextBuilder:
         输出数据结构为 BuiltContext
         """
         
-        available_tokens = self.config.input_limit
+        available_tokens = self.config.input_token_budget
 
         items =self._gather(
             conversation_history=conversation_history,
@@ -522,15 +522,15 @@ class ContextBuilder:
                     }
                 ]
                 # 超长工具结果也可能撑满摘要请求；摘要输入同样受总预算约束。
-                body_budget = self.config.input_limit - self.counter.count_messages([
+                body_budget = self.config.input_token_budget - self.counter.count_messages([
                     llm_messages[0], {"role": "user", "content": ""},
                 ])
                 if body_budget <= 0:
                     raise ValueError("输入预算不足以容纳摘要提示词")
-                while self.counter.count_messages(llm_messages) > self.config.input_limit:
+                while self.counter.count_messages(llm_messages) > self.config.input_token_budget:
                     content = llm_messages[1]["content"]
                     llm_messages[1]["content"] = self._head_tail_truncate(content, body_budget)
-                    overflow = self.counter.count_messages(llm_messages) - self.config.input_limit
+                    overflow = self.counter.count_messages(llm_messages) - self.config.input_token_budget
                     body_budget = max(body_budget - max(overflow, 1), 0)
                 response = await self.llm.ainvoke(
                     messages=llm_messages,

@@ -2,6 +2,7 @@
 
 
 from taiyi_agent.core.llm import TaiyiAgentLLM
+from taiyi_agent.core.config import AgentConfig
 from taiyi_agent.agents.agent_factory import AgentFactory
 from taiyi_agent.sessions.session_store import InMemorySessionStore
 from taiyi_agent.sessions.session_manager import SessionManager
@@ -11,16 +12,16 @@ from taiyi_agent.context.context_data import ContextConfig
 from taiyi_agent.context.context_assembler import ContextAssembler
 from taiyi_agent.context.context_builder import ContextBuilder
 from taiyi_agent.context.token_window import TokenWindow, TokenCounter
-from taiyi_agent.tool.datetime_tool.get_current_time_tool import GetCurrentTimeTool
-from taiyi_agent.tool.search_tool.tavily_search import TavilySearchTool
-from taiyi_agent.tool.search_tool.web_search_tool import SerpSearchTool
-from taiyi_agent.tool.search_tool.weather_tool import WeatherTool
+from taiyi_agent.tool.builtin_tool.get_current_time_tool import GetCurrentTimeTool
+from taiyi_agent.tool.builtin_tool.search_tool.web_search_tool import WebSearchTool
+from taiyi_agent.tool.builtin_tool.search_tool.weather_tool import WeatherTool
 
 import asyncio
 
 llm = TaiyiAgentLLM()
 store = InMemorySessionStore()
 factory = AgentFactory()
+agent_cfg = AgentConfig.from_env()
 context_cfg = ContextConfig()
 counter = TokenCounter()
 context_builder = ContextBuilder(config=context_cfg, llm=llm, counter=counter)
@@ -31,12 +32,12 @@ context_assembler = ContextAssembler(builder=context_builder, token_window=token
 tool_registry = ToolRegistry()
 tool_list = [
     GetCurrentTimeTool(),
-    TavilySearchTool(),
-    SerpSearchTool(),
+    WebSearchTool(),
     WeatherTool()
 ]
 for tool in tool_list:
     tool_registry.register_tool(tool)
+
 
 
 manager = SessionManager(
@@ -44,6 +45,7 @@ manager = SessionManager(
     agent_factory=factory,
     llm=llm,
     context_assembler=context_assembler,
+    agent_cfg=agent_cfg,
     tool_registry=tool_registry,
 )
 
