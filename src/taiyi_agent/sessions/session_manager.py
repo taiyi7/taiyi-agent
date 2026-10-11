@@ -7,6 +7,7 @@ from uuid import UUID
 
 from taiyi_agent.agents.agent_factory import AgentFactory
 from taiyi_agent.core.llm import TaiyiAgentLLM
+from taiyi_agent.core.config import AgentConfig
 from taiyi_agent.sessions.session import SessionState
 from taiyi_agent.sessions.session_store import SessionStore
 from taiyi_agent.tool.tool_calling import ToolCallingStrategy
@@ -34,6 +35,7 @@ class SessionManager:
         agent_factory: AgentFactory,
         llm: TaiyiAgentLLM,
         context_assembler: ContextAssembler,
+        agent_cfg: AgentConfig,
         tool_registry: ToolRegistry | None = None,
         tool_calling_strategy: ToolCallingStrategy | None = None,
     ) -> None:
@@ -41,6 +43,7 @@ class SessionManager:
         self.agent_factory = agent_factory
         self.llm = llm
         self.context_assembler = context_assembler
+        self.agent_cfg = agent_cfg
         self.tool_registry = tool_registry
         self.tool_calling_strategy = tool_calling_strategy
 
@@ -55,7 +58,7 @@ class SessionManager:
         *,
         agent_type: str = "react",
         system_prompt: str | None = None,
-        max_steps: int = 6,
+        max_steps: int | None = None,
     ) -> SessionState:
         session = await self.store.get(session_id)
 
@@ -66,7 +69,7 @@ class SessionManager:
             session_id=session_id,
             agent_type=agent_type,
             system_prompt=system_prompt,
-            max_steps=max_steps,
+            react_max_steps11=self.resolve_max_steps(max_steps),
         )
 
     async def send(
@@ -76,7 +79,7 @@ class SessionManager:
         *,
         agent_type: str = "react",
         system_prompt: str | None = None,
-        max_steps: int = 6,
+        max_steps: int | None = None,
     ) -> str:
         """
         处理一次用户请求。
@@ -94,6 +97,11 @@ class SessionManager:
                 max_steps=max_steps,
             )
 
+            step_limit = (
+                max_steps
+                if max_steps is not None
+                else session.react_max_steps
+            )
             agent = self.agent_factory.create(
                 session,
                 llm=self.llm,
@@ -111,7 +119,7 @@ class SessionManager:
                 result = await agent.run(
                     session=session,
                     user_input=user_input,
-                    max_steps=max_steps,
+                    max_steps=step_limit,
                     checkpoint=checkpoint,
                 )
             except Exception:
@@ -136,3 +144,10 @@ class SessionManager:
 
         async with lock:
             await self.store.delete(session_id)
+
+    def resolve_max_steps(self, value: int | None) -> int:
+        return (
+            value
+            if value is not None
+            else self.agent_cfg.react_max_steps
+        )

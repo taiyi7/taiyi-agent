@@ -17,6 +17,8 @@ dependencies = [
   "transformers",
   "fastapi[standard]>=0.142.2",
   "uvicorn",
+  "tavily>=1.1.0",
+  "tzdata>=2026.5",
 ]
 
 [tool.setuptools.packages.find]

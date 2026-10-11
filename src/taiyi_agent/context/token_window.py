@@ -27,7 +27,7 @@ class TokenWindow:
 
     @property
     def max_tokens(self) -> int:
-        return self.config.input_limit
+        return self.config.input_token_budget
     
     def clip(
         self,

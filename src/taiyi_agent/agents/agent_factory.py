@@ -98,5 +98,5 @@ class AgentFactory:
             step_executor=step_executor,
             context_assembler=context.context_assembler,
             agent_system_prompt=context.session.system_prompt,
-            max_steps=context.session.max_steps,
+            max_steps=context.session.react_max_steps,
         )

@@ -40,7 +40,7 @@ class SummaryLLM:
 def make_assembler(llm=None, *, max_tokens=10000, reserved_output_tokens=2000):
     llm = SummaryLLM() if llm is None else llm
     config = ContextConfig(
-        max_tokens=max_tokens, reserved_output_tokens=reserved_output_tokens,
+        model_context_window=max_tokens, reserved_output_tokens=reserved_output_tokens,
     )
     counter = TokenCounter(encoding=CharacterEncoding())
     builder = ContextBuilder(config=config, llm=llm, counter=counter)
@@ -278,7 +278,7 @@ def test_react_continues_multiple_tool_steps_and_a_second_user_turn(prompt_mode)
         llm, registry,
         tool_calling_strategy=PromptToolCallingStrategy() if prompt_mode else None,
     )
-    agent = ReactAgent(executor, assembler, agent_system_prompt="Default policy.")
+    agent = ReactAgent(executor, assembler, max_steps=6, agent_system_prompt="Default policy.")
     session = SessionState()
     snapshots = []
 

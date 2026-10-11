@@ -2,22 +2,45 @@
 Agent执行「LLM 调用 + tool 解析 + 工具执行」的单步逻辑
 '''
 
-from __future__ import annotations
-
 import asyncio
+from uuid import uuid4
 from copy import deepcopy
-from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
 from typing import Any
 
 from taiyi_agent.core.llm import TaiyiAgentLLM
-from taiyi_agent.core.tool_call import LLMResponse, ToolExecution
+from taiyi_agent.core.tool_call import LLMResponse, ToolExecution, ToolCall
 from taiyi_agent.tool.tool_calling import (
     NativeToolCallingStrategy,
     ToolCallingStrategy,
 )
 from taiyi_agent.tool.tool_registry import ToolRegistry
 
+
+
+TIME_TOOL_NAME = "datetime"
+TIME_CONTEXT_MARKER = "runtime_time_prefetched"
+TIME_TOOL_ARGUMENTS = {
+    "timezone": "Asia/Shanghai",
+}
+REALTIME_KEYWORDS = (
+    "今年",
+    "这个月",
+    "实时",
+    "当前",
+    "现在",
+    "今天",
+    "刚刚",
+    "最新",
+    "天气",
+    "股价",
+    "汇率",
+    "新闻",
+    "real-time",
+    "current",
+    "today",
+    "latest",
+)
 
 
 class AgentStepResult(BaseModel):
@@ -93,6 +116,8 @@ class AgentStepExecutor:
     async def execute(
         self,
         working_messages: list[dict[str, Any]],
+        *,
+        enable_tool_calling: bool | None = None,
     ) -> AgentStepResult:
         """
         执行一次 LLM 调用和工具执行。
@@ -102,7 +127,12 @@ class AgentStepExecutor:
         """
         before_length = len(working_messages)
 
-        if self.enable_tool_calling:
+        use_tool_calling = {
+            self.enable_tool_calling
+            if enable_tool_calling is None
+            else enable_tool_calling
+        }
+        if use_tool_calling:
             if self.tool_registry is None:
                 raise RuntimeError(
                     "工具调用已启用，但 ToolRegistry 未配置"
@@ -125,14 +155,23 @@ class AgentStepExecutor:
         if self.tool_registry is None:
             raise RuntimeError("模型返回了工具调用，但 ToolRegistry 未配置")
 
-        results = await asyncio.gather(*[
-            self.tool_registry.aexecute_tool(call.name,call.arguments)
-            for call in response.tool_calls
-        ])
+        executed_calls, results = await self._execute_tool_calls(
+            calls=response.tool_calls,
+            working_messages=working_messages,
+        )
+
+        # 只保留本轮实际执行的工具调用。
+        # 如果本轮原本同时返回了 datetime 和 search，
+        # 这里只追加 datetime，避免产生不完整的工具调用协议。
+        step_response = response.model_copy(
+            update={
+                "tool_calls": executed_calls,
+            }
+        )
 
         executions = [
             ToolExecution(call=call, result=result)
-            for call, result in zip(response.tool_calls, results)
+            for call, result in zip(executed_calls, results)
         ]
 
         pairs = [
@@ -140,11 +179,9 @@ class AgentStepExecutor:
             for execution in executions
         ]
 
-
-        # 将响应和工具调用及工具结果追加到 working_messages
         self.tool_calling_strategy.append_tool_results(
             working_messages,
-            response,
+            step_response,
             pairs,
         )
 
@@ -153,3 +190,97 @@ class AgentStepExecutor:
             tool_executions=executions,
             appended_messages=deepcopy(working_messages[before_length:]),
         )
+
+    async def _execute_tool_calls(
+        self,
+        calls: list[ToolCall],
+        working_messages: list[dict[str, Any]],
+    ) -> tuple[list[ToolCall], list[str]]:
+        if self.tool_registry is None:
+            raise RuntimeError("ToolRegistry 未配置")
+        if not calls:
+            return [], []
+
+        # 已预取时间：全部并行执行
+        if any(msg.get("name") == TIME_CONTEXT_MARKER for msg in working_messages):
+            results = await asyncio.gather(*[
+                self.tool_registry.aexecute_tool(call.name, call.arguments)
+                for call in calls
+            ])
+            return calls, results
+
+        # 模型主动调用datetime：只执行时间工具
+        explicit_time_call = next((c for c in calls if c.name == TIME_TOOL_NAME), None)
+        if explicit_time_call:
+            time_result = await self.tool_registry.aexecute_tool(explicit_time_call.name, explicit_time_call.arguments)
+            working_messages.insert(0, {
+                "role": "system",
+                "name": TIME_CONTEXT_MARKER,
+                "content": "当前轮次已经完成时间查询，下一轮请根据时间结果继续处理用户问题。"
+            })
+            return [explicit_time_call], [time_result]
+
+        # 识别为实时问题，自动注入时间查询，丢弃本轮其他calls
+        if self._is_realtime_question(working_messages):
+            synthetic_time_call = ToolCall(
+                id=f"runtime-time-{uuid4()}",
+                name=TIME_TOOL_NAME,
+                arguments={"timezone": "Asia/Shanghai"},
+            )
+            time_result = await self.tool_registry.aexecute_tool(synthetic_time_call.name, synthetic_time_call.arguments)
+            working_messages.insert(0, {
+                "role": "system",
+                "name": TIME_CONTEXT_MARKER,
+                "content": "当前轮次已经完成时间查询，下一轮请根据时间结果重新生成工具调用。"
+            })
+            return [synthetic_time_call], [time_result]
+
+        # 普通问题，并行执行所有工具
+        results = await asyncio.gather(*[
+            self.tool_registry.aexecute_tool(call.name, call.arguments)
+            for call in calls
+        ])
+        return calls, results
+
+
+    async def finalize(
+        self,
+        working_messages: list[dict[str, Any]],
+    ) -> str:
+        final_messages = [
+            *working_messages,
+            {
+                "role": "user",
+                "content": (
+                    "工具调用次数已达到上限。"
+                    "请根据当前已有的用户需求、历史消息和工具结果，"
+                    "直接给出当前最合理的最终答案。"
+                    "不要再次调用工具，也不要说明迭代次数限制。"
+                ),
+            },
+        ]
+
+        response = await self.llm.ainvoke(
+            final_messages,
+            tools=None,
+        )
+
+        return response.content.strip()
+
+
+    @staticmethod
+    def _is_realtime_question(
+        messages: list[dict[str, Any]],
+    ) -> bool:
+        for message in reversed(messages):
+            if message.get("role") != "user":
+                continue
+
+            content = str(message.get("content") or "").lower()
+
+            return any(
+                keyword.lower() in content
+                for keyword in REALTIME_KEYWORDS
+            )
+
+        return False

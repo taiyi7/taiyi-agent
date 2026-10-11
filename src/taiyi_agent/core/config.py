@@ -1,5 +1,6 @@
 import os
 from typing import Dict, Any
+from functools import lru_cache
 from pydantic import BaseModel, Field
 from taiyi_agent.context.context_data import ContextConfig
 
@@ -38,3 +39,25 @@ class Config(BaseModel):
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
         return self.model_dump()    # self.dict()后续版本废弃
+
+
+class AgentConfig(BaseModel):
+    """
+    Agent 的运行配置。
+    """
+
+    react_max_steps: int = Field(default=10, ge=1, le=100, description="一次用户请求最多执行的 ReAct 步数")
+
+    @classmethod
+    def from_env(cls) -> "AgentConfig":
+        config = cls()
+
+        raw_max_steps = os.getenv("REACT_MAX_STEPS", "10")
+        if raw_max_steps is not None:
+            config.react_max_steps = int(raw_max_steps)
+
+        return config
+    
+@lru_cache(maxsize=1)
+def get_agent_config() -> AgentConfig:
+    return AgentConfig()

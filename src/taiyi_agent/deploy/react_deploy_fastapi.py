@@ -17,6 +17,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from taiyi_agent.core.config import AgentConfig
 from taiyi_agent.agents.agent_factory import AgentFactory
 from taiyi_agent.context.context_assembler import ContextAssembler
 from taiyi_agent.context.context_builder import ContextBuilder
@@ -28,10 +29,9 @@ from taiyi_agent.sessions.session import SessionState
 from taiyi_agent.sessions.session_manager import SessionManager
 from taiyi_agent.sessions.session_store import InMemorySessionStore
 from taiyi_agent.tool.tool_registry import ToolRegistry
-from taiyi_agent.tool.datetime_tool.get_current_time_tool import GetCurrentTimeTool
-from taiyi_agent.tool.search_tool.tavily_search import TavilySearchTool
-from taiyi_agent.tool.search_tool.web_search_tool import SerpSearchTool
-from taiyi_agent.tool.search_tool.weather_tool import WeatherTool
+from taiyi_agent.tool.builtin_tool.get_current_time_tool import GetCurrentTimeTool
+from taiyi_agent.tool.builtin_tool.search_tool.web_search_tool import WebSearchTool
+from taiyi_agent.tool.builtin_tool.search_tool.weather_tool import WeatherTool
 
 
 class CreateSessionRequest(BaseModel):
@@ -39,7 +39,7 @@ class CreateSessionRequest(BaseModel):
 
     system_prompt: str | None = None
     agent_type: str = "react"
-    max_steps: int = Field(default=6, ge=1, le=100)
+    max_steps: int | None = Field(default=None, ge=1, le=100)
 
 
 class CreateSessionResponse(BaseModel):
@@ -106,13 +106,13 @@ def build_session_manager() -> SessionManager:
     tool_registry = ToolRegistry()
     tool_list = [
         GetCurrentTimeTool(),
-        TavilySearchTool(),
-        SerpSearchTool(),
+        WebSearchTool(),
         WeatherTool()
     ]
     for tool in tool_list:
         tool_registry.register_tool(tool)
 
+    agent_cfg = AgentConfig.from_env()
     context_config = ContextConfig()
     token_counter = TokenCounter()
     context_builder = ContextBuilder(
@@ -134,6 +134,7 @@ def build_session_manager() -> SessionManager:
         agent_factory=factory,
         llm=llm,
         context_assembler=context_assembler,
+        agent_cfg=agent_cfg,
         tool_registry=tool_registry,
     )
 
@@ -211,7 +212,7 @@ async def create_session(
         session_id=uuid4(),
         agent_type=data.agent_type,
         system_prompt=data.system_prompt,
-        max_steps=data.max_steps,
+        react_max_steps=data.max_steps,
     )
     await manager.store.save(session)
     request.app.state.session_titles[str(session.session_id)] = "新对话"
@@ -219,7 +220,7 @@ async def create_session(
     return CreateSessionResponse(
         session_id=session.session_id,
         agent_type=session.agent_type,
-        max_steps=session.max_steps,
+        max_steps=session.react_max_steps,
         title="新对话",
     )
 
@@ -262,7 +263,7 @@ async def get_session(session_id: UUID, request: Request) -> SessionResponse:
         session_id=session.session_id,
         agent_type=session.agent_type,
         system_prompt=session.system_prompt,
-        max_steps=session.max_steps,
+        max_steps=session.react_max_steps,
         revision=session.revision,
         history=[message.model_dump(mode="json") for message in session.history],
         title=request.app.state.session_titles.get(str(session_id), "新对话"),
@@ -311,7 +312,7 @@ async def chat(session_id: UUID, payload: ChatRequest, request: Request) -> Chat
             user_input=payload.message,
             agent_type=session.agent_type,
             system_prompt=session.system_prompt,
-            max_steps=payload.max_steps or session.max_steps,
+            max_steps=payload.max_steps,
         )
     except Exception as exc:
         raise HTTPException(

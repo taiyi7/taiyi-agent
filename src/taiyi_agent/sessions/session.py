@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from uuid import UUID, uuid4
 
 from taiyi_agent.core.message import Message
+from taiyi_agent.core.config import get_agent_config
 from taiyi_agent.agents.agent_step import AgentStepResult
 from taiyi_agent.context.context_data import ContextItem
 
@@ -61,8 +62,8 @@ class SessionState(BaseModel):
     session_id: UUID = Field(default_factory=uuid4)
     agent_type: str = "react"
     system_prompt: str | None = None
-    max_steps: int = 6
-    max_input_tokens: int = 8192
+    react_max_steps: int | None = Field(default=None, ge=1, le=100)
+    input_token_budget_override: int | None = None
     persist_trace: bool = False    # turn完成后是否持久化
 
     history: list[Message] = Field(default_factory=list)
@@ -71,6 +72,11 @@ class SessionState(BaseModel):
     revision: int = 0
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.react_max_steps is None:
+            self.react_max_steps = get_agent_config().react_max_steps
+
 
     def begin_turn(self, user_input: str) -> None:
         if self.active_turn is not None:
