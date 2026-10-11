@@ -89,7 +89,7 @@ def session_store() -> InMemorySessionStore:
 @pytest.fixture
 def empty_session() -> SessionState:
     """没有历史和活动 turn 的空 Session。"""
-    return SessionState(session_id=uuid4(), max_steps=3)
+    return SessionState(session_id=uuid4(), react_max_steps=3)
 
 
 @pytest.fixture
@@ -99,7 +99,7 @@ def context_builder(
 ) -> ContextBuilder:
     return ContextBuilder(
         config=ContextConfig(
-            max_tokens=256,
+            model_context_window=256,
             reserved_output_tokens=0,
             max_history_messages=3,
         ),
@@ -289,7 +289,7 @@ async def test_agent_react_aborts_and_reraises_step_exception(
 ) -> None:
     """单步异常应结束活动 turn，保留异常给调用方处理。"""
     mock_llm.ainvoke.side_effect = RuntimeError("llm unavailable")
-    agent = ReactAgent(AgentStepExecutor(mock_llm, mock_tool))
+    agent = ReactAgent(AgentStepExecutor(mock_llm, mock_tool), max_steps=6)
 
     with pytest.raises(RuntimeError, match="llm unavailable"):
         await agent.run(empty_session, "失败请求")

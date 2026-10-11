@@ -52,7 +52,7 @@ def make_builder(
 ) -> ContextBuilder:
     """为每个测试显式提供 ContextConfig、TokenCounter 和 LLM。"""
     config = config if config is not None else ContextConfig(
-        max_tokens=256,
+        model_context_window=256,
         reserved_output_tokens=0,
     )
     llm = llm if llm is not None else RecordingTaiyiAgentLLM()
@@ -68,7 +68,7 @@ def run_build(builder: ContextBuilder, **kwargs: Any) -> str:
 
 
 def test_context_builder_initialization_and_first_context() -> None:
-    config = ContextConfig(max_tokens=256, reserved_output_tokens=0)
+    config = ContextConfig(model_context_window=256, reserved_output_tokens=0)
     llm = RecordingTaiyiAgentLLM()
     builder = make_builder(config=config, llm=llm)
 
@@ -174,7 +174,7 @@ def test_history_compression_uses_llm_summary_and_keeps_recent_message() -> None
     ])
     builder = make_builder(
         config=ContextConfig(
-            max_tokens=256,
+            model_context_window=256,
             reserved_output_tokens=0,
             history_keep_recent=1,
             history_summary_max_tokens=8,
@@ -205,7 +205,7 @@ def test_history_compression_falls_back_to_recent_messages_when_llm_fails() -> N
     llm = RecordingTaiyiAgentLLM()
     builder = make_builder(
         config=ContextConfig(
-            max_tokens=256,
+            model_context_window=256,
             reserved_output_tokens=0,
             history_keep_recent=1,
         ),
@@ -344,6 +344,7 @@ def test_each_llm_call_receives_tool_call_context() -> None:
 
     agent = ReactAgent(
         step_executor=agent_step,
+        max_steps=6,
         agent_system_prompt="你是天气助手。"
     )
     result = asyncio.run(agent.run(session=session, user_input="广州天气如何？"))

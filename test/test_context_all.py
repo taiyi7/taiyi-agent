@@ -7,7 +7,6 @@
 import asyncio
 import os
 
-from taiyi_agent.agents.standard_agent import StandardAgent
 from taiyi_agent.context.context_builder import ContextBuilder
 from taiyi_agent.context.context_data import ContextConfig, ContextItem
 from taiyi_agent.context.context_assembler import ContextAssembler
@@ -55,7 +54,7 @@ llm = TaiyiAgentLLM()
 token_counter = TokenCounter()
 builder = ContextBuilder(
     config=ContextConfig(
-        max_tokens=4096,
+        model_context_window=4096,
         reserved_output_tokens=0,
         max_history_messages=20,
     ),

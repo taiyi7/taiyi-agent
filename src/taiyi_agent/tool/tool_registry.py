@@ -1,7 +1,7 @@
 # tool_registry.py
 from typing import Any, Callable
 from taiyi_agent.tool.tool_base import BaseTool, ToolParameter
-from taiyi_agent.tool.function_tool.function_tool import FunctionTool
+from taiyi_agent.tool.function_tool import FunctionTool
 import asyncio
 
 class ToolRegistry:
