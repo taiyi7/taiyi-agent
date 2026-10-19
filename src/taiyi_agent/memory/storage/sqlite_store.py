@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from collections.abc import Iterable
+from typing import Iterable, Sequence
 from pathlib import Path
 
 from taiyi_agent.memory.storage.models import StoredRecord
@@ -50,6 +50,13 @@ class SQLiteStore:
             """
         )
         self.connection.commit()
+
+    def execute(
+        self,
+        sql: str,
+        parameters: Sequence[object] = (),
+    ) -> sqlite3.Cursor:
+        return self.connection.execute(sql, parameters)
 
     def put(self, record: StoredRecord) -> None:
         """新增或覆盖一条记录。"""

@@ -49,6 +49,9 @@ class RecordStorePort(Protocol):
     ) -> list[tuple[str, float]]:
         ...
 
+    def healthcheck(self) -> bool:
+        ...
+
 
 class VectorIndexPort(Protocol):
     """RAG 向量写入和稠密检索接口。"""
@@ -78,4 +81,7 @@ class VectorIndexPort(Protocol):
         *,
         namespace: str,
     ) -> None:
+        ...
+
+    def healthcheck(self) -> bool:
         ...

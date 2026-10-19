@@ -55,13 +55,13 @@ class RetrievalConfig(BaseModel):
 class EmbeddingConfig(BaseModel):
     model: str | None = None
     api_key: str | None = None
-    url: str | None = None
+    base_url: str | None = None
     timeout: float = 60.0
     batch_size: int = 16
 
 
 class RerankerConfig(BaseModel):
-    url: str | None = None
+    base_url: str | None = None
     api_key: str | None = None
     model: str | None = None
     timeout: float = 30.0
@@ -119,12 +119,12 @@ class RAGConfig(BaseModel):
             embedding=EmbeddingConfig(
                 model=os.getenv("EMBEDDER_MODEL"),
                 api_key=os.getenv("EMBEDDER_API_KEY"),
-                url=os.getenv("EMBEDDER_URL"),
+                base_url=os.getenv("EMBEDDER_URL"),
                 timeout=_env_float("EMBEDDER_TIMEOUT", 60.0),
                 batch_size=_env_int("EMBEDDER_BATCH_SIZE", 16),
             ),
             reranker=RerankerConfig(
-                url=os.getenv("QWEN_RERANK_URL"),
+                base_url=os.getenv("QWEN_RERANK_URL"),
                 api_key=os.getenv("QWEN_RERANK_API_KEY"),
                 model=os.getenv("QWEN_RERANK_MODEL"),
                 timeout=_env_float("QWEN_RERANK_TIMEOUT", 30.0),

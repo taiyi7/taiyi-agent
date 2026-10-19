@@ -9,14 +9,14 @@ load_dotenv()
 
 class AliRerankModel(RerankModel):
     def __init__(self, config: RerankerConfig):
-        if not config.url:
+        if not config.base_url:
             raise ValueError("Reranker URL 未配置")
         if not config.api_key:
             raise ValueError("Reranker API key 未配置")
         if not config.model:
             raise ValueError("Reranker model 未配置")
 
-        self.url = config.url
+        self.url = config.base_url
         self.api_key = config.api_key
         self.model_name = config.model
         self.timeout = config.timeout

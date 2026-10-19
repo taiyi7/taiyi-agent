@@ -2,8 +2,7 @@ from collections import defaultdict
 import time
 
 """
-生产环境可替换为 Prometheus、OpenTelemetry 或 StatsD。
-建议监控指标：
+监控指标：
 离线：
 - 文件处理成功率
 - 文件解析失败数

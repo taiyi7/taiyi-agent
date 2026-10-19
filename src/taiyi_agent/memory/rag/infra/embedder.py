@@ -9,7 +9,7 @@ class RAGEmbedder:
     可替换为BGE、Jina等本地模型，外部调用完全不用改动pipeline代码
     """
     def __init__(self, config: EmbeddingConfig) -> None:
-        if not config.url:
+        if not config.base_url:
             raise ValueError("Reranker URL 未配置")
         if not config.model:
             raise ValueError("Embedding model 未配置")
@@ -18,10 +18,12 @@ class RAGEmbedder:
 
         self.model = config.model
         self.batch_size = config.batch_size
+        self.api_key = config.api_key
+        self.base_url = config.base_url
 
         self.client = OpenAI(
             api_key=config.api_key,
-            base_url=config.url,
+            base_url=config.base_url,
             timeout=config.timeout,
         )
 
@@ -73,3 +75,20 @@ class RAGEmbedder:
             model=self.model
         )
         return resp.data[0].embedding
+
+    def healthcheck(self) -> bool:
+        if not self.api_key or not self.model:
+            return False
+
+        try:
+            response = self.client.embeddings.create(
+                model=self.model,
+                input=["rag healthcheck"],
+            )
+
+            return bool(
+                response.data
+                and response.data[0].embedding
+            )
+        except Exception:
+            return False

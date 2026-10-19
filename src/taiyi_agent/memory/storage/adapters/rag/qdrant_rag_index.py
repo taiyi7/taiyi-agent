@@ -70,3 +70,6 @@ class QdrantRAGIndex:
             namespace=namespace,
             extra_filter={"doc_id", doc_id}
         )
+
+    def health_check(self)-> bool:
+        return self.store.healthcheck()
