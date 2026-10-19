@@ -32,3 +32,15 @@ dist/
 # Operating system files
 .DS_Store
 Thumbs.db
+
+# Local SQLite databases and sidecar files
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Local runtime data
+src/taiyi_agent/memory/data/
+test/**/data/db/
