@@ -242,6 +242,7 @@ Invoke-RestMethod -Uri "$apiBase/sessions/$($sessionB.session_id)"
 ```text
 taiyi-agent/
 ├── readme.md
+├── LICENSE                       MIT License
 ├── pyproject.toml                 项目与依赖配置
 ├── uv.lock                        uv 依赖锁文件
 ├── frontend/                      静态网页及其使用说明
@@ -445,3 +446,7 @@ RAG 演示脚本位于 `test/rag_test/`，主要用于验证真实的 SQLite、Q
 - 流式对话：在部署层增加流式响应协议，并与 ReAct 工具步骤、会话保存和前端消费配合。
 
 当前部署尚无用户身份与会话归属校验；session_id 提供的是会话状态隔离。面向多用户部署时，需要在 API 层补充身份与权限处理。
+
+## 8. 许可证
+
+本项目采用 [MIT License](LICENSE) 发布。具体授权条款、版权声明和免责声明请参阅仓库根目录下的 [`LICENSE`](LICENSE) 文件。
