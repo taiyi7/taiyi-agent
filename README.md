@@ -12,14 +12,14 @@ Taiyi Agent 是一个基于 Python 的对话 Agent 项目，通过兼容 OpenAI 
 - 构建和压缩上下文，控制历史消息及工具轨迹的 token 占用。
 - 通过前端创建、切换、重命名、删除会话和查看历史。
 
-本文以当前仓库实现为准。memory 已有独立存储接口和内存实现，但尚未自动接入部署对话流程；RAG 目前保留目录，尚无检索流水线。
+本文以当前仓库实现为准。memory 已有独立存储接口、内存实现和 SQLite/Qdrant 存储适配器；RAG 已具备文档加载、按 token 分块、Embedding、向量索引、SQLite FTS 稀疏检索、混合检索和 Rerank 组件，但尚未自动接入 FastAPI 或命令行对话流程。
 
 ## 1. 环境准备
 
 需要 Python 3.11 或更高版本。以下命令以 Windows PowerShell 为例，均从项目根目录执行：
 
 ```powershell
-Set-Location 'E:\code\agent_project\hello_agent\chapter07\taiyi-agent'
+Set-Location 'C:\code\agent\taiyi-agent'
 ```
 
 ### 1.1 安装依赖
@@ -31,16 +31,14 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e .
-python -m pip install tavily-python httpx tzdata
 ```
 
-`pip install -e .` 安装 pyproject.toml 中的依赖，并使 src 下的 taiyi_agent 包可被导入。当前部署入口直接导入并实例化 Tavily 工具，tavily-python 尚未列入项目依赖，因此需要补充安装。HTTP 工具使用 httpx；Windows 环境安装 tzdata 可为 ZoneInfo 提供时区数据。
+`pip install -e .` 会安装 `pyproject.toml` 中声明的依赖，并使 `src` 下的 `taiyi_agent` 包可被导入。当前代码使用 OpenAI 兼容客户端、FastAPI、Tavily、httpx、Qdrant、PDF/Word 解析、tokenizer 及 Transformers/ModelScope 支持。若运行环境提示缺少 `httpx` 或 `requests`，需要单独安装；这两个包目前没有直接写入项目依赖列表。
 
 如果 PowerShell 无法激活虚拟环境，可以直接使用其解释器，无需调整系统策略：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e .
-.\.venv\Scripts\python.exe -m pip install tavily-python httpx tzdata
 ```
 
 后续启动命令中的 python 也可替换为这个解释器路径。
@@ -65,6 +63,41 @@ QWEATHER_API_KEY=replace_with_your_qweather_api_key
 
 # 可选：tokenizer 的模型 ID 或本地目录
 QWEN_TOKENIZER_MODEL=Qwen/Qwen3-Embedding-0.6B
+
+# RAG 默认配置；仅运行普通对话时可以不配置
+RAG_NAMESPACE=knowledge_base
+RAG_CHUNK_SIZE_TOKENS=256
+RAG_CHUNK_OVERLAP_TOKENS=50
+RAG_MIN_CHUNK_LENGTH=50
+RAG_MERGE_MAX_TOKENS=512
+RAG_CANDIDATE_K=20
+RAG_ANSWER_K=5
+RAG_MAX_CANDIDATE_K=100
+RAG_DEFAULT_LIMIT=20
+RAG_RRF_K=60
+
+# RAG Embedding 服务（OpenAI 兼容接口）
+EMBEDDER_MODEL=replace_with_embedding_model_id
+EMBEDDER_API_KEY=replace_with_embedding_api_key
+EMBEDDER_URL=https://your-embedding-provider.example/v1
+EMBEDDER_TIMEOUT=60
+EMBEDDER_BATCH_SIZE=16
+
+# RAG Rerank 服务
+QWEN_RERANK_URL=https://your-rerank-provider.example/v1
+QWEN_RERANK_API_KEY=replace_with_rerank_api_key
+QWEN_RERANK_MODEL=replace_with_rerank_model_id
+QWEN_RERANK_TIMEOUT=30
+QWEN_RERANK_TOP_K=5
+
+# RAG SQLite 与 Qdrant
+# 建议使用相对项目根目录的路径
+RAG_SQLITE_PATH=./test/rag_test/data/db/rag_test.db
+QDRANT_URL=http://localhost:6333
+QDRANT_API_KEY=
+QDRANT_COLLECTION_NAME=taiyi_vectors
+QDRANT_VECTOR_SIZE=1024
+QDRANT_DISTANCE=Cosine
 ```
 
 LLM_MODEL_ID 应填写服务商实际支持的模型名称。默认部署采用 NativeToolCallingStrategy，所选模型及服务接口需要支持 tools/tool_calls；代码也提供 PromptToolCallingStrategy，可供不支持原生工具调用的模型集成使用，当前 API 尚未提供策略切换参数。
@@ -73,15 +106,7 @@ TokenCounter 初始化时尝试通过 ModelScope 或 Transformers 加载 tokeniz
 
 天气工具目前使用 weather_tool.py 内的 QWEATHER_HOST 常量，不读取同名环境变量。调用前需要确认该地址与自己的和风天气账号/API Host 匹配；配置 API key 本身不会改变地址。
 
-当前普通会话不需要 Embedding 配置。仅当额外 ContextItem 需要计算相关性时，ContextBuilder 会读取另一组变量：
-
-```dotenv
-OPENAI_API_KEY=replace_with_your_embedding_api_key
-OPENAI_BASE_URL=https://your-embedding-provider.example/v1
-OPENAI_EMBEDDING_MODEL=replace_with_your_embedding_model_id
-```
-
-这些变量与 LLM_API_KEY、LLM_BASE_URL 分别读取，不会自动互相替代。
+RAG 配置由 `taiyi_agent.memory.rag.config.RAGConfig.from_env()` 统一读取。代码默认值定义在 `config.py`，环境变量（包括 `.env` 中的变量）覆盖这些默认值；RAG 组件接收已构造的配置对象，不应自行重复读取环境变量。Embedding 和 Rerank 服务只在运行 RAG 测试或组装 RAG 组件时需要配置，不会自动接入普通会话。
 
 ## 2. 启动方案
 
@@ -130,6 +155,17 @@ python -m taiyi_agent.deploy.react_deploy_local
 命令行入口创建一个 session，每次输入都调用 SessionManager.send() 并复用该 session 的历史，输入 q 退出。它与 FastAPI 使用相同类型的模型、工具和上下文组件，但运行在自己的进程中，不会读取网页服务的会话。
 
 examples/hello_agent_demo.py 是引用 hello_agents 包的教学示例，不是当前 taiyi_agent 的部署入口。
+
+### 2.4 运行 RAG 演示
+
+RAG 当前是独立组件，没有在部署入口中自动初始化。确认 `.env` 已配置 Embedding、Rerank 和 Qdrant 参数，并且 Qdrant 服务已经运行后，可以从项目根目录执行：
+
+```powershell
+python test/rag_test/test_ingestion.py
+python test/rag_test/test_retrieval.py
+```
+
+`test_ingestion.py` 执行 `load_file → DocumentChunker → Indexer`，将文档内容写入 SQLite，并将 Embedding 向量写入 Qdrant。`test_retrieval.py` 执行稠密检索、SQLite FTS 稀疏检索、RRF 融合和 Rerank。两个脚本使用名为 `test_rag_ingestion` 的 Qdrant collection，运行前需要准备 `test/rag_test/data/documents/` 下的示例文档，并确认该 collection 的向量维度与 `QDRANT_VECTOR_SIZE` 和 Embedding 模型输出一致。
 
 ## 3. 会话 API 与连续对话
 
@@ -222,7 +258,8 @@ taiyi-agent/
     │   └── search_tool/           Tavily、SerpAPI、天气查询
     ├── history/                   简单对话历史容器
     ├── memory/                    记忆结构与存储实现
-    │   └── rag/                   RAG 预留目录
+    │   ├── storage/               SQLite、Qdrant 及 RAG 存储适配器
+    │   └── rag/                   RAG 配置、端口、导入、检索和可观测性
     └── deploy/                    命令行与 FastAPI 部署入口
 ```
 
@@ -311,16 +348,33 @@ reserved_output_tokens 用于计算输入预算，当前 LLM 请求并未据此�
 
 history.py 中的 History 提供 add_history、get_history、clear_history，主要供 SimpleAgent 使用。get_history 返回深拷贝。ReAct 的对话历史直接保存在 SessionState.history 中，不通过这个容器管理。
 
-### 5.7 memory 与 RAG：独立记忆能力及预留接口
+### 5.7 memory 与 RAG：独立记忆能力和检索组件
 
 | 文件/目录 | 职责及当前状态 |
 | --- | --- |
 | memory_record.py | MemoryRecord 保存 user_id、内容、标签、重要性和时间等字段 |
 | memory_store.py | MemoryStore 定义异步新增、读取、检索、更新、删除和清空接口 |
 | in_memory_store.py | InMemoryStore 按用户筛选记忆，结合关键词匹配、重要性和更新时间排序；属于内存实现，不是向量数据库 |
-| rag/ | 预留目录，当前没有文档导入、分块、向量索引和检索实现 |
+| storage/sqlite_store.py | 通用 SQLite records 存储，支持 namespace、data_type 和 record_id 隔离 |
+| storage/qdrant_store.py | 通用 Qdrant 向量存储，负责 collection、向量写入、相似度检索和过滤 |
+| storage/adapters/rag/sqlite_rag_stroe.py | 将 SQLiteStore 适配为 RAG 文档/Chunk 存储，并维护 SQLite FTS5 稀疏检索表 |
+| storage/adapters/rag/qdrant_rag_index.py | 将 QdrantStore 适配为 RAG 向量索引 |
+| rag/config.py | RAGConfig 统一管理 namespace、token 分块、检索、Embedding、Rerank、SQLite 和 Qdrant 配置；from_env() 读取环境变量 |
+| rag/ports/ | EmbedderPort、RerankerPort、RecordStorePort 和 VectorIndexPort 等端口协议 |
+| rag/infra/embedder.py | RAGEmbedder，调用 OpenAI 兼容 Embeddings API，支持批量文档向量化、查询向量化和健康检查 |
+| rag/infra/reranker.py | AliRerankModel 调用 Rerank HTTP 服务；RAGReranker 将分数写回 RetrievalHit 并返回重排结果 |
+| rag/ingestion/loaders.py | 加载 txt、md、py、json、pdf、docx 和 csv，生成 SourceDocument |
+| rag/ingestion/chunker.py | 使用 TokenCounter 按 token 上限切分文档，生成带来源和 token 统计的 TextChunk |
+| rag/ingestion/indexer.py | 调用 EmbedderPort 生成向量，并写入 RecordStorePort 与 VectorIndexPort |
+| rag/ingestion/pipeline.py | 编排 load → chunk → index 流程，提供 ingest_file() |
+| rag/retrieval/retriever.py | 组合稠密检索和 SQLite FTS 稀疏检索，通过 RRF 融合为 RetrievalHit |
+| rag/retrieval/query_service.py | 调用 HybridRetriever 和 RerankerPort，返回最终 hits、contexts 和 citations |
+| rag/observability/health.py | 检查 RecordStore、VectorIndex 和 Embedder 的健康状态 |
+| rag/observability/metrics.py | 提供计数器和耗时统计容器；需要由业务流程显式调用 |
 
-ContextBuilder 接收 additional_items，预留 memory/rag 类型的上下文信息，但自动读取 MemoryStore 和 RAG 的逻辑目前没有接通。网页里的“记住上一轮”来自 session.history，不能理解为已自动写入持久化用户记忆。
+RAG 的典型组装方式是：`RAGConfig.from_env()` 创建配置，`SQLiteStore` 和 `QdrantStore` 提供基础设施，`SQLiteRAGStore` 和 `QdrantRAGIndex` 提供 RAG 适配，`RAGEmbedder` 和 `RAGReranker` 提供模型服务，再由 `IngestionPipeline`、`HybridRetriever` 和 `QueryService` 编排流程。SQLite 保存文档、Chunk 和 FTS5 索引，Qdrant 保存向量；两者通过相同的 namespace 和 chunk_id 关联。
+
+当前 RAG 尚未接入 FastAPI 或命令行对话流程。`test/rag_test/test_ingestion.py` 演示文档导入，`test/rag_test/test_retrieval.py` 演示混合检索和 Rerank；这些脚本需要可用的 Embedding 服务、Rerank 服务和 Qdrant 服务，不能视为完全离线的单元测试。网页中的“记住上一轮”仍然来自 `session.history`，不表示 RAG 或 `MemoryStore` 已自动写入持久化用户记忆。
 
 ### 5.8 deploy 与 frontend：应用入口
 
@@ -379,13 +433,15 @@ python -m pytest test/test_agent_project.py -q
 
 test_agent_project.py 使用 mock 模型检查消息结构、Agent 行为、会话、上下文、工具和记忆等模块。其余文件需根据实际接口和配置选择执行；部分文件在导入时就运行真实接口调用，不宜把全量 test 目录视为纯离线测试。测试代码也需要随接口和默认参数变更保持同步。
 
+RAG 演示脚本位于 `test/rag_test/`，主要用于验证真实的 SQLite、Qdrant、Embedding 和 Rerank 链路，运行方式见“2.4 运行 RAG 演示”。它们依赖外部服务和本地示例文档，未配置这些依赖时不应作为普通离线回归测试执行。
+
 后续扩展可以围绕现有模块边界进行：
 
 - 持久化会话：实现 SessionStore.get/save/delete，并同步设计会话列表、标题索引和跨进程并发控制。
 - 新增工具：实现 BaseTool 的 get_parameters 及 run/arun，或通过 register_function 包装函数，再在部署入口注册。
 - 新增 Agent：实现 session 执行接口，在 AgentFactory 中注册 builder。
 - 接入记忆：明确 user_id 与 session_id 的关系，连接 MemoryStore 的写入、召回与 ContextBuilder。
-- 接入 RAG：实现文档处理、索引及检索，将检索结果组织为 ContextItem。
+- 接入 RAG 对话流程：将现有 IngestionPipeline、QueryService 的结果接入部署层，并将检索结果组织为 ContextItem。
 - 流式对话：在部署层增加流式响应协议，并与 ReAct 工具步骤、会话保存和前端消费配合。
 
 当前部署尚无用户身份与会话归属校验；session_id 提供的是会话状态隔离。面向多用户部署时，需要在 API 层补充身份与权限处理。
